@@ -11,7 +11,7 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld } from "./viewport.js?v=0.3.1";
+import { screenToWorld } from "./viewport.js?v=0.4.2";
 
 // Default look until the inspector exists (DESIGN §3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.5; // world units (≈0.5mm on the 100mm artboard)
@@ -30,6 +30,7 @@ export function initTools(svg, state) {
   setupButtons();
   setupKeyboard();
   setupDrawing();
+  setupClickDrawing();
 
   // Keep the tool buttons in sync with state.activeTool on every change.
   state.subscribe((s) => syncButtons(s.activeTool));
@@ -39,6 +40,7 @@ export function initTools(svg, state) {
 /* ----- tool selection: the one path that changes the armed tool ----- */
 function setActiveTool(tool) {
   if (_state.get().activeTool === tool) return;
+  clearClickLocals(); // arming another tool discards any in-progress click draft
   _state.update((s) => {
     s.activeTool = tool;
     s.draft = null; // arming another tool discards any unfinished draft
@@ -69,13 +71,17 @@ function setupKeyboard() {
     else if (key === "r") setActiveTool("R");
     else if (key === "o") setActiveTool("O");
     else if (key === "y") setActiveTool("Y");
+    else if (key === "l") setActiveTool("L");
+    else if (key === "p") setActiveTool("P");
   });
 }
 
 /* ===== SHAPE DRAWING (rect / ellipse / triangle — one shared pipeline) ===== */
 
-// Armed tool → object type. Every size-based shape draws through the SAME
-// down→drag→up flow as the rectangle; only the stored `type` differs.
+// Armed tool → object type. Size-based shapes (rect/ellipse/triangle) draw
+// through the SAME down→drag→up flow; only the stored geometry differs
+// (makeShape branches on type). Line (L) and polyline (P) are click-to-click
+// instead — see setupClickDrawing below.
 const SHAPE_TYPE = { R: "rect", O: "ellipse", Y: "triangle" };
 
 let drawing = false;
@@ -136,7 +142,7 @@ function setupDrawing() {
     _state.update((s) => {
       s.draft = null;
       // Only commit a real drag; a click with no movement draws nothing.
-      if (shape.w >= MIN_SIZE && shape.h >= MIN_SIZE) {
+      if (isCommittable(shape)) {
         shape.id = `obj_${Date.now().toString(36)}_${++_idCounter}`;
         shape.order = s.objects.length;
         s.objects.push(shape);
@@ -144,6 +150,115 @@ function setupDrawing() {
       }
     });
   });
+}
+
+/* ===== CLICK-TO-CLICK DRAWING (line L + polyline P — one shared mechanism) ===== */
+//
+// Both place vertices by CLICKING (no button hold). A running point list
+// (draftPoints) is built one click at a time; a live SOLID rubber-band preview
+// (state.draft, rendered as a polyline) runs from the last placed vertex to the
+// mouse. The only difference between the tools is when they finish:
+//   • LINE (L): the 2-point case — the 2nd click commits and finishes.
+//   • POLYLINE (P): many points — double-click or Enter finishes (≥2 points).
+// ESC cancels the whole draft (nothing committed). All clicks convert to world
+// coords through the SHARED screenToWorld helper — no new coordinate math.
+const CLICK_TOOLS = { L: "line", P: "polyline" };
+
+let clickTool = null;     // armed click-to-click tool ("L"/"P") while drafting, else null
+let draftPoints = [];     // world-space vertices placed so far
+let mouseWorld = null;    // last mouse world pos, for the rubber-band segment
+
+function setupClickDrawing() {
+  // Each click appends a vertex. Line auto-commits at 2 points; polyline keeps going.
+  _svg.addEventListener("click", (e) => {
+    if (e.button !== 0) return;                  // left button only
+    if (spaceHeld) return;                        // Space+click = pan, not draw
+    const tool = _state.get().activeTool;
+    if (!CLICK_TOOLS[tool]) return;               // only L / P place points
+    const vb = _state.get().viewBox;
+    draftPoints.push(screenToWorld(_svg, vb, e.clientX, e.clientY));
+    clickTool = tool;
+
+    if (tool === "L" && draftPoints.length === 2) { commitLine(); return; }
+    updateDraftPreview();                         // refresh the committed-segments preview
+  });
+
+  // Rubber-band: redraw preview from the placed points to the live mouse.
+  window.addEventListener("mousemove", (e) => {
+    if (!clickTool) return;
+    const vb = _state.get().viewBox;
+    mouseWorld = screenToWorld(_svg, vb, e.clientX, e.clientY);
+    updateDraftPreview();
+  });
+
+  // Double-click finishes a polyline. Its two click events already appended a
+  // duplicate vertex at the finish spot, so drop it before committing.
+  _svg.addEventListener("dblclick", () => {
+    if (clickTool !== "P") return;
+    if (draftPoints.length > 0) draftPoints.pop();
+    finishPolyline();
+  });
+
+  // Enter finishes a polyline; Esc cancels any in-progress click draft.
+  window.addEventListener("keydown", (e) => {
+    if (!clickTool) return;
+    if (e.key === "Escape") { e.preventDefault(); resetClickDraft(); }
+    else if (e.key === "Enter" && clickTool === "P") { e.preventDefault(); finishPolyline(); }
+  });
+}
+
+// Live preview = the placed segments PLUS a rubber-band from the last vertex to
+// the mouse. Rendered as a solid polyline (render.js) so it matches the result.
+function updateDraftPreview() {
+  if (!clickTool || draftPoints.length === 0) return;
+  const pts = mouseWorld ? [...draftPoints, mouseWorld] : draftPoints.slice();
+  _state.update((s) => { s.draft = makePolyline(pts); });
+}
+
+// LINE: exactly two clicks. Commit a real line object, or cancel a zero-length one.
+function commitLine() {
+  const line = makeLine(draftPoints[0], draftPoints[1]);
+  if (isCommittable(line)) commitClickShape(line);
+  else resetClickDraft();
+}
+
+// POLYLINE: needs ≥2 vertices; otherwise the draft is discarded.
+function finishPolyline() {
+  if (draftPoints.length < 2) { resetClickDraft(); return; }
+  commitClickShape(makePolyline(draftPoints));
+}
+
+// Push a finished click-to-click shape through the SAME store path as the drag
+// flow (id + z-order assigned on commit), then auto-return to V (DESIGN 4-3).
+function commitClickShape(shape) {
+  _state.update((s) => {
+    shape.id = `obj_${Date.now().toString(36)}_${++_idCounter}`;
+    shape.order = s.objects.length;
+    s.objects.push(shape);
+    s.draft = null;
+    s.activeTool = "V";
+  });
+  clearClickLocals();
+}
+
+function clearClickLocals() {
+  draftPoints = [];
+  clickTool = null;
+  mouseWorld = null;
+}
+
+function resetClickDraft() {
+  clearClickLocals();
+  if (_state.get().draft) _state.update((s) => { s.draft = null; });
+}
+
+/* ----- commit gate: ignore stray clicks that drew nothing ----- */
+// Size-based shapes need a non-trivial box; a line needs a non-trivial length.
+function isCommittable(shape) {
+  if (shape.type === "line") {
+    return Math.hypot(shape.p2.x - shape.p1.x, shape.p2.y - shape.p1.y) >= MIN_SIZE;
+  }
+  return shape.w >= MIN_SIZE && shape.h >= MIN_SIZE;
 }
 
 /* ----- hit-test: topmost shape whose ACTUAL outline/interior (grown outward) contains p ----- */
@@ -155,8 +270,26 @@ function setupDrawing() {
 function hitTest(objects, p, tol = 0) {
   for (let i = objects.length - 1; i >= 0; i--) {
     const o = objects[i];
-    if (o.type !== "rect" && o.type !== "ellipse" && o.type !== "triangle") continue;
+    if (o.type !== "rect" && o.type !== "ellipse" && o.type !== "triangle" &&
+        o.type !== "line" && o.type !== "polyline") continue;
+    // A line has no area: clickable band = stroke half-width + the screen-px
+    // slack already converted to world units (tol = tolerancePx / currentZoom),
+    // so the band stays visually constant at any zoom (DESIGN-style tolerance).
     const margin = (o.strokeWidth || 0) / 2 + tol;
+
+    if (o.type === "line") {
+      if (segDist(p.x, p.y, o.p1.x, o.p1.y, o.p2.x, o.p2.y) <= margin) return o.id;
+      continue;
+    }
+
+    if (o.type === "polyline") {
+      // Hit if within margin of ANY segment between consecutive vertices.
+      const pts = o.points || [];
+      for (let k = 0; k < pts.length - 1; k++) {
+        if (segDist(p.x, p.y, pts[k].x, pts[k].y, pts[k + 1].x, pts[k + 1].y) <= margin) return o.id;
+      }
+      continue;
+    }
 
     if (o.type === "rect") {
       // box == actual shape: outward-grown bbox containment (unchanged)
@@ -216,6 +349,7 @@ function segDist(px, py, ax, ay, bx, by) {
 // DESIGN 2-1 branch A (size-based): x/y is the top-left, w/h are positive.
 // `type` is "rect" | "ellipse" | "triangle"; all share this identical structure.
 function makeShape(type, a, b) {
+  if (type === "line") return makeLine(a, b);
   return {
     id: null, // assigned on commit
     type,
@@ -228,6 +362,40 @@ function makeShape(type, a, b) {
     strokeWidth: DEFAULT_STROKE_WIDTH,
     fillLevel: 0,          // unused while fillNone is true
     fillNone: true,        // border only, hollow (DESIGN 3-2); clickable (5-3)
+    locked: false,
+    layerId: 1,
+    order: 0,              // assigned on commit (z-order within layer)
+  };
+}
+
+/* ----- build an endpoint-based line from two world points (DESIGN 2-1 branch B) ----- */
+// A line is defined by TWO endpoints (p1/p2), not x/y/w/h, and has no fill.
+function makeLine(a, b) {
+  return {
+    id: null, // assigned on commit
+    type: "line",
+    p1: { x: a.x, y: a.y },
+    p2: { x: b.x, y: b.y },
+    rotation: 0,
+    strokeLevel: 0,        // 0 = black (DESIGN 2-2)
+    strokeWidth: DEFAULT_STROKE_WIDTH,
+    locked: false,
+    layerId: 1,
+    order: 0,              // assigned on commit (z-order within layer)
+  };
+}
+
+/* ----- build a polyline from a list of world points (click-to-click) ----- */
+// Many vertices, connected in order; no fill. Used both for the live preview
+// (placed points + floating mouse) and the committed object.
+function makePolyline(points) {
+  return {
+    id: null, // assigned on commit
+    type: "polyline",
+    points: points.map((p) => ({ x: p.x, y: p.y })),
+    rotation: 0,
+    strokeLevel: 0,        // 0 = black (DESIGN 2-2)
+    strokeWidth: DEFAULT_STROKE_WIDTH,
     locked: false,
     layerId: 1,
     order: 0,              // assigned on commit (z-order within layer)

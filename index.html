@@ -22,17 +22,23 @@
     <aside class="panel panel-left">
       <div class="panel-title">도구</div>
       <div class="tool-list" id="tool-list">
-        <button class="tool-btn" type="button" data-tool="V">
-          <kbd>V</kbd><span>선택</span>
+        <button class="tool-btn" type="button" data-tool="V" title="선택 (V)">
+          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3 L4 15.5 L7.5 12 L9.8 16.5 L11.7 15.6 L9.4 11.2 L14.5 11 Z"/></svg></kbd>
         </button>
-        <button class="tool-btn" type="button" data-tool="R">
-          <kbd>R</kbd><span>사각형</span>
+        <button class="tool-btn" type="button" data-tool="R" title="사각형 (R)">
+          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5.5" width="13" height="9"/></svg></kbd>
         </button>
-        <button class="tool-btn" type="button" data-tool="O">
-          <kbd>O</kbd><span>타원</span>
+        <button class="tool-btn" type="button" data-tool="O" title="타원 (O)">
+          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="10" cy="10" rx="7" ry="5"/></svg></kbd>
         </button>
-        <button class="tool-btn" type="button" data-tool="Y">
-          <kbd>Y</kbd><span>직각삼각형</span>
+        <button class="tool-btn" type="button" data-tool="Y" title="직각삼각형 (Y)">
+          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 4 L4.5 15.5 L16 15.5 Z"/></svg></kbd>
+        </button>
+        <button class="tool-btn" type="button" data-tool="L" title="직선 (L)">
+          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4.5" y1="15.5" x2="15.5" y2="4.5"/><circle cx="4.5" cy="15.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="15.5" cy="4.5" r="1.2" fill="currentColor" stroke="none"/></svg></kbd>
+        </button>
+        <button class="tool-btn" type="button" data-tool="P" title="다각선 (P)">
+          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3.5,14 7.5,6.5 12,12.5 16.5,5.5"/></svg></kbd>
         </button>
       </div>
     </aside>
@@ -69,11 +75,11 @@
 
   <!-- ===== FOOTER: version + date ===== -->
   <footer class="app-footer">
-    PhysicsExamDrawer Web · <strong>v0.3.4</strong> · 2026-06-16
+    PhysicsExamDrawer Web · <strong>v0.4.3</strong> · 2026-06-16
   </footer>
 
   <!-- ===== MODULES (load order matters: store → state → viewport → render → main) ===== -->
   <!-- ?v= busts the ES-module cache so edits actually load (DESIGN: cache-bust) -->
-  <script type="module" src="js/main.js?v=0.3.1"></script>
+  <script type="module" src="js/main.js?v=0.4.3"></script>
 </body>
 </html>

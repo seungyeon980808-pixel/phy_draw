@@ -67,38 +67,47 @@ body {
 
 /* ===== LEFT PANEL: tool buttons (DESIGN §3) ===== */
 .tool-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 4px;
 }
 
 .tool-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
   width: 100%;
+  aspect-ratio: 1;
   font-family: inherit;
   font-size: 13px;
   color: var(--c-text);
   background: #fff;
   border: 1px solid var(--c-border);
   border-radius: 6px;
-  padding: 7px 9px;
+  padding: 4px;
   cursor: pointer;
-  text-align: left;
 }
 .tool-btn:hover { background: var(--c-bg); }
 
 .tool-btn kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-family: "IBM Plex Mono", monospace;
   font-size: 11px;
   color: #6e7781;
   background: var(--c-bg);
   border: 1px solid var(--c-border);
   border-radius: 4px;
-  padding: 1px 6px;
-  min-width: 20px;
+  padding: 3px;
+  min-width: 24px;
   text-align: center;
+}
+/* shape icons inherit the kbd text color so they highlight with active state */
+.tool-btn kbd .tool-ico {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 
 /* active tool = signature blue (mirrors state.activeTool) */

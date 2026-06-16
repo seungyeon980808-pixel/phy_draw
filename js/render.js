@@ -28,7 +28,27 @@ export function render(state) {
   // ----- selection outline (blue dashed bbox; world space so it tracks zoom/pan) -----
   if (state.selectedId) {
     const sel = state.objects.find((o) => o.id === state.selectedId);
-    if (sel) {
+    if (sel && sel.type === "line") {
+      // A line has no bbox; its selection guide is a dashed copy of the segment.
+      const ln = document.createElementNS(SVG_NS, "line");
+      ln.setAttribute("x1", sel.p1.x);
+      ln.setAttribute("y1", sel.p1.y);
+      ln.setAttribute("x2", sel.p2.x);
+      ln.setAttribute("y2", sel.p2.y);
+      ln.setAttribute("stroke-width", "0.4"); // world units
+      ln.setAttribute("stroke-dasharray", "1.2 1.2");
+      ln.style.stroke = "var(--c-main, #0969da)";
+      scene.appendChild(ln);
+    } else if (sel && sel.type === "polyline") {
+      // A polyline has no fillable bbox; its guide is a dashed copy of the path.
+      const pl = document.createElementNS(SVG_NS, "polyline");
+      pl.setAttribute("points", sel.points.map((p) => `${p.x},${p.y}`).join(" "));
+      pl.setAttribute("fill", "none");
+      pl.setAttribute("stroke-width", "0.4"); // world units
+      pl.setAttribute("stroke-dasharray", "1.2 1.2");
+      pl.style.stroke = "var(--c-main, #0969da)";
+      scene.appendChild(pl);
+    } else if (sel) {
       const box = document.createElementNS(SVG_NS, "rect");
       box.setAttribute("x", sel.x);
       box.setAttribute("y", sel.y);
@@ -48,8 +68,9 @@ export function render(state) {
 
     // For size-based shapes (ellipse/triangle) the bbox differs from the shape
     // outline, so draw a dashed rectangle guide spanning the drag bounds first.
-    // (rect's own preview already IS that rectangle, so skip the duplicate.)
-    if (d.type !== "rect") {
+    // (rect's own preview already IS that rectangle; the line has no bbox — it
+    // shows its own solid preview below — so both skip the duplicate guide.)
+    if (d.type !== "rect" && d.type !== "line" && d.type !== "polyline") {
       const box = document.createElementNS(SVG_NS, "rect");
       box.setAttribute("x", d.x);
       box.setAttribute("y", d.y);
@@ -81,7 +102,11 @@ function renderObject(obj) {
       return renderEllipse(obj);
     case "triangle":
       return renderTriangle(obj);
-    // future: line / polyline / arc / text
+    case "line":
+      return renderLine(obj);
+    case "polyline":
+      return renderPolyline(obj);
+    // future: arc / text
     default:
       return null;
   }
@@ -151,6 +176,32 @@ function renderTriangle(obj) {
     const cy = obj.y + obj.h / 2;
     el.setAttribute("transform", `rotate(${obj.rotation} ${cx} ${cy})`);
   }
+  if (obj.id) el.dataset.id = obj.id;
+  return el;
+}
+
+/* ----- line: endpoint-based shape (DESIGN 2-1 branch B); p1→p2, no fill ----- */
+function renderLine(obj) {
+  const el = document.createElementNS(SVG_NS, "line");
+  el.setAttribute("x1", obj.p1.x);
+  el.setAttribute("y1", obj.p1.y);
+  el.setAttribute("x2", obj.p2.x);
+  el.setAttribute("y2", obj.p2.y);
+  // strokeLevel 0 = black (DESIGN 2-2). stroke-width is in world units.
+  el.setAttribute("stroke", grayHex(obj.strokeLevel));
+  el.setAttribute("stroke-width", obj.strokeWidth);
+  if (obj.id) el.dataset.id = obj.id;
+  return el;
+}
+
+/* ----- polyline: many connected points, black stroke, no fill (click-to-click) ----- */
+function renderPolyline(obj) {
+  const el = document.createElementNS(SVG_NS, "polyline");
+  el.setAttribute("points", obj.points.map((p) => `${p.x},${p.y}`).join(" "));
+  el.setAttribute("fill", "none");
+  // strokeLevel 0 = black (DESIGN 2-2). stroke-width is in world units.
+  el.setAttribute("stroke", grayHex(obj.strokeLevel));
+  el.setAttribute("stroke-width", obj.strokeWidth);
   if (obj.id) el.dataset.id = obj.id;
   return el;
 }
