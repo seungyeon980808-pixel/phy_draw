@@ -176,7 +176,7 @@ body {
   width: 100%;
   height: 100%;
   display: block;
-  background: #fff;
+  background: #f0f0f0;
   /* cursor hints for pan are set from viewport.js */
 }
 #canvas.is-panning { cursor: grabbing; }

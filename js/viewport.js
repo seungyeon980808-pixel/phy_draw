@@ -63,6 +63,7 @@ export function initViewport(svg, state, onChange) {
   svg.addEventListener(
     "wheel",
     (e) => {
+      if (!e.ctrlKey) return;
       e.preventDefault();
       state.update((s) => {
         const vb = s.viewBox;

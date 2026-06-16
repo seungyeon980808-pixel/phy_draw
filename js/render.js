@@ -19,6 +19,19 @@ export function render(state) {
   // keyed/diffing pass can replace this once object counts grow.
   scene.replaceChildren();
 
+  // ----- artboard: 90mm × 65mm world-space rect, non-interactive, always first -----
+  const artboard = document.createElementNS(SVG_NS, "rect");
+  artboard.setAttribute("x", "-45");
+  artboard.setAttribute("y", "-32.5");
+  artboard.setAttribute("width", "90");
+  artboard.setAttribute("height", "65");
+  artboard.setAttribute("fill", "#ffffff");
+  artboard.setAttribute("stroke", "#d0d7de");
+  artboard.setAttribute("stroke-width", "1");
+  artboard.setAttribute("vector-effect", "non-scaling-stroke");
+  artboard.setAttribute("pointer-events", "none");
+  scene.appendChild(artboard);
+
   // ----- committed objects (z-order = array order, DESIGN 1-1) -----
   for (const obj of state.objects) {
     const el = renderObject(obj);

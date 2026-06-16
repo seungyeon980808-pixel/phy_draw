@@ -15,8 +15,8 @@ export const state = createStore({
   objects: [],
 
   // viewBox: world-space rectangle currently shown (x, y, w, h).
-  // 100 × 100 matches the future 100mm artboard (DESIGN §8-1).
-  viewBox: { x: 0, y: 0, w: 100, h: 100 },
+  // Initial view: 90×65 artboard centered at origin with ~10mm margin on each side.
+  viewBox: { x: -55, y: -42.5, w: 110, h: 85 },
 
   // activeTool: which tool is armed. "V" = select, "R" = rectangle (DESIGN §3).
   // Drawing auto-returns to "V" right after a shape lands (DESIGN 4-3).
