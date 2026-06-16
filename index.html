@@ -18,20 +18,30 @@
 <body>
   <!-- ===== APP SHELL (DESIGN §7 three-panel skeleton) ===== -->
   <div class="app">
-    <!-- ----- LEFT: tools / templates (placeholder in 1A) ----- -->
+    <!-- ----- LEFT: tools (V/R now; more shapes land later) ----- -->
     <aside class="panel panel-left">
       <div class="panel-title">도구</div>
-      <p class="placeholder">Phase 1A — 비어 있음<br />(도형 0개)</p>
+      <div class="tool-list" id="tool-list">
+        <button class="tool-btn" type="button" data-tool="V">
+          <kbd>V</kbd><span>선택</span>
+        </button>
+        <button class="tool-btn" type="button" data-tool="R">
+          <kbd>R</kbd><span>사각형</span>
+        </button>
+        <button class="tool-btn" type="button" data-tool="O">
+          <kbd>O</kbd><span>타원</span>
+        </button>
+        <button class="tool-btn" type="button" data-tool="Y">
+          <kbd>Y</kbd><span>직각삼각형</span>
+        </button>
+      </div>
     </aside>
 
     <!-- ----- CENTER: canvas (the only working panel in 1A) ----- -->
     <main class="panel panel-center">
       <div class="canvas-toolbar">
-        <button id="btn-shuffle" type="button" class="btn">
-          점 좌표 바꾸기 (data-as-truth 증명)
-        </button>
         <span class="hint">
-          휠 = 줌(커서 기준) · 가운데버튼/Space+드래그 = 팬
+          R = 사각형 (드래그로 그리기) · 휠 = 줌(커서 기준) · 가운데버튼/Space+드래그 = 팬
         </span>
         <span id="zoom-readout" class="zoom-readout">zoom 1.00×</span>
       </div>
@@ -59,10 +69,11 @@
 
   <!-- ===== FOOTER: version + date ===== -->
   <footer class="app-footer">
-    PhysicsExamDrawer Web · <strong>v0.1.0</strong> · 2026-06-16
+    PhysicsExamDrawer Web · <strong>v0.3.4</strong> · 2026-06-16
   </footer>
 
   <!-- ===== MODULES (load order matters: store → state → viewport → render → main) ===== -->
-  <script type="module" src="js/main.js"></script>
+  <!-- ?v= busts the ES-module cache so edits actually load (DESIGN: cache-bust) -->
+  <script type="module" src="js/main.js?v=0.3.1"></script>
 </body>
 </html>

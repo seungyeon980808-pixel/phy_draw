@@ -23,13 +23,16 @@ export function worldToScreen(svg, vb, wx, wy) {
   };
 }
 
-// screen (client) pixels -> world (viewBox) coords
+// screen (client) pixels -> world (viewBox) coords.
+// Use the SVG's native screen CTM so the conversion honours preserveAspectRatio
+// letterboxing (the rendered box is not square). A naive rect.width/height
+// divide ignores the centered letterbox and drifts proportionally off-center.
 export function screenToWorld(svg, vb, sx, sy) {
-  const rect = svg.getBoundingClientRect();
-  return {
-    x: vb.x + ((sx - rect.left) / rect.width) * vb.w,
-    y: vb.y + ((sy - rect.top) / rect.height) * vb.h,
-  };
+  const pt = svg.createSVGPoint();
+  pt.x = sx;
+  pt.y = sy;
+  const w = pt.matrixTransform(svg.getScreenCTM().inverse());
+  return { x: w.x, y: w.y };
 }
 
 /* ----- public: current zoom factor (will feed handleSize / zoom later) ----- */

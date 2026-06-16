@@ -1,8 +1,8 @@
 /* ===== STATE (DESIGN 1-1: data is the single source of truth) ===== */
 //
 // The whole drawing is one plain data object. SVG is only a projection of it.
-// In Phase 1A `objects` stays empty (zero shapes); render.js temporarily plots
-// fixed-world-coordinate verification dots so the projection is visible.
+// `objects` holds every shape (a rectangle is one object — DESIGN 1-1). The
+// render pass paints these; nothing reads back from the SVG DOM.
 //
 // `viewBox` mirrors the SVG viewBox and is the ONLY coordinate authority
 // (DESIGN 1-2). Zoom/pan mutate this, never a CSS transform.
@@ -11,20 +11,21 @@ import { createStore } from "./store.js";
 
 /* ----- initial state ----- */
 export const state = createStore({
-  // objects: array of { id, type, ...props } — empty until Phase 1.
+  // objects: array of { id, type, ...props } — the real drawing data.
   objects: [],
 
   // viewBox: world-space rectangle currently shown (x, y, w, h).
   // 100 × 100 matches the future 100mm artboard (DESIGN §8-1).
   viewBox: { x: 0, y: 0, w: 100, h: 100 },
 
-  // TEMP (Phase 1A only): fixed world-coordinate dots used to prove the
-  // projection. Remove this field once real shape objects exist.
-  verifyDots: [
-    { x: 25, y: 25, r: 1.6, color: "#0969da" },
-    { x: 75, y: 25, r: 1.6, color: "#0e7490" },
-    { x: 50, y: 50, r: 1.6, color: "#0969da" },
-    { x: 25, y: 75, r: 1.6, color: "#0e7490" },
-    { x: 75, y: 75, r: 1.6, color: "#0969da" },
-  ],
+  // activeTool: which tool is armed. "V" = select, "R" = rectangle (DESIGN §3).
+  // Drawing auto-returns to "V" right after a shape lands (DESIGN 4-3).
+  activeTool: "V",
+
+  // draft: the in-progress shape shown live during a drag. null when idle.
+  // It is NOT a committed object — on mouse-up it becomes one in `objects`.
+  draft: null,
+
+  // selectedId: id of the currently selected object (V tool), or null.
+  selectedId: null,
 });

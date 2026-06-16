@@ -65,6 +65,54 @@ body {
   line-height: 1.5;
 }
 
+/* ===== LEFT PANEL: tool buttons (DESIGN §3) ===== */
+.tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tool-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--c-text);
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  padding: 7px 9px;
+  cursor: pointer;
+  text-align: left;
+}
+.tool-btn:hover { background: var(--c-bg); }
+
+.tool-btn kbd {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: #6e7781;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  min-width: 20px;
+  text-align: center;
+}
+
+/* active tool = signature blue (mirrors state.activeTool) */
+.tool-btn.is-active {
+  color: #fff;
+  background: var(--c-main);
+  border-color: var(--c-main);
+}
+.tool-btn.is-active kbd {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
 /* ===== CENTER CANVAS ===== */
 .panel-center {
   display: flex;
