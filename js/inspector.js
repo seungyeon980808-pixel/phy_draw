@@ -606,6 +606,9 @@ export function initInspector(state) {
   const layerDetails = document.createElement("details");
   layerDetails.open = true;
   layerDetails.className = "insp-section";
+  // Pin to the bottom of the inspector. #inspector is already a full-height
+  // flex column (see inspector.css), so margin-top:auto pushes this to the end.
+  layerDetails.style.marginTop = "auto";
   const layerSummary = document.createElement("summary");
   layerSummary.className = "insp-summary";
   layerSummary.textContent = "레이어";
@@ -633,13 +636,27 @@ export function initInspector(state) {
         "border-left:3px solid " + (isActive ? "#0969da" : "transparent") + ";" +
         "background:" + (isActive ? "rgba(9,105,218,0.12)" : "transparent") + ";";
 
-      // Visibility toggle
+      // ----- Visibility / Lock toggles (grayscale text-label buttons) -----
+      // Slim outlined buttons, same size. Pressed (active) = faint shade + inset
+      // feel; unpressed = flat outline. Grayscale only — no color.
+      const TOGGLE_BASE =
+        "width:42px;flex-shrink:0;font-size:10px;line-height:1;padding:3px 0;" +
+        "text-align:center;cursor:pointer;border-radius:3px;font-family:inherit;" +
+        "letter-spacing:0.03em;";
+      const TOGGLE_OFF =
+        "border:1px solid #c4c4c4;background:#ffffff;color:#8a8a8a;box-shadow:none;";
+      const TOGGLE_ON =
+        "border:1px solid #9a9a9a;background:#dcdcdc;color:#2a2a2a;" +
+        "box-shadow:inset 0 1px 2px rgba(0,0,0,0.22);";
+      function styleToggle(btn, on) {
+        btn.style.cssText = TOGGLE_BASE + (on ? TOGGLE_ON : TOGGLE_OFF);
+      }
+
+      // Visibility toggle — visible = pressed (active) look
       const eyeBtn = document.createElement("button");
-      eyeBtn.textContent = "👁";
+      eyeBtn.textContent = "show";
       eyeBtn.title = isHidden ? "표시" : "숨기기";
-      eyeBtn.style.cssText =
-        "background:none;border:none;cursor:pointer;font-size:12px;padding:0 2px;" +
-        "line-height:1;flex-shrink:0;opacity:" + (isHidden ? "0.3" : "1") + ";";
+      styleToggle(eyeBtn, !isHidden);
       eyeBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         state.update((s2) => {
@@ -648,12 +665,11 @@ export function initInspector(state) {
         });
       });
 
-      // Lock toggle
+      // Lock toggle — locked = pressed (active) look
       const lockBtn = document.createElement("button");
-      lockBtn.textContent = layer.locked ? "🔒" : "🔓";
+      lockBtn.textContent = "lock";
       lockBtn.title = layer.locked ? "잠금 해제" : "잠금";
-      lockBtn.style.cssText =
-        "background:none;border:none;cursor:pointer;font-size:12px;padding:0 2px;line-height:1;flex-shrink:0;";
+      styleToggle(lockBtn, !!layer.locked);
       lockBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         state.update((s2) => {
