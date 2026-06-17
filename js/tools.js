@@ -11,7 +11,7 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld } from "./viewport.js?v=0.4.2";
+import { screenToWorld } from "./viewport.js?v=0.7.0";
 
 // Default look until the inspector exists (DESIGN §3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.5; // world units (≈0.5mm on the 100mm artboard)
@@ -31,6 +31,7 @@ export function initTools(svg, state) {
   setupKeyboard();
   setupDrawing();
   setupClickDrawing();
+  setupTextTool();
 
   // Keep the tool buttons in sync with state.activeTool on every change.
   state.subscribe((s) => syncButtons(s.activeTool));
@@ -41,6 +42,7 @@ export function initTools(svg, state) {
 function setActiveTool(tool) {
   if (_state.get().activeTool === tool) return;
   clearClickLocals(); // arming another tool discards any in-progress click draft
+  cancelActiveTextEditor(); // discard any in-progress text edit
   _state.update((s) => {
     s.activeTool = tool;
     s.draft = null; // arming another tool discards any unfinished draft
@@ -60,7 +62,7 @@ function syncButtons(activeTool) {
   });
 }
 
-/* ----- keyboard shortcuts: V / R (DESIGN §3) ----- */
+/* ----- keyboard shortcuts: V / S / R / O / Y / L / P / C / T ----- */
 function setupKeyboard() {
   window.addEventListener("keydown", (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return; // leave Ctrl+R (reload) etc.
@@ -68,11 +70,14 @@ function setupKeyboard() {
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
     const key = e.key.toLowerCase();
     if (key === "v") setActiveTool("V");
-    else if (key === "r") setActiveTool("R");
+    else if (key === "s") setActiveTool("R");
+    else if (key === "r") setActiveTool("rotate");
     else if (key === "o") setActiveTool("O");
     else if (key === "y") setActiveTool("Y");
     else if (key === "l") setActiveTool("L");
     else if (key === "p") setActiveTool("P");
+    else if (key === "c") setActiveTool("C");
+    else if (key === "t") setActiveTool("T");
   });
 }
 
@@ -99,7 +104,14 @@ function setupDrawing() {
   _svg.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;                  // left button only
     if (spaceHeld) return;                        // Space+left = pan, not select
-    if (_state.get().activeTool !== "V") return;  // only the select tool picks
+    const _at = _state.get().activeTool;
+    if (_at !== "V" && _at !== "rotate") return;  // select or rotate tool picks
+    // A click on a selection handle means "manipulate the selected object",
+    // NOT "change selection". Handles can sit OUTSIDE the shape outline
+    // (ellipse/triangle corners), where hitTest finds empty space and would
+    // wrongly clear selectedId — breaking transform.js's handle-drag guard.
+    const tgt = e.target;
+    if (tgt && tgt.dataset && tgt.dataset.handle) return;
     const vb = _state.get().viewBox;
     const p = screenToWorld(_svg, vb, e.clientX, e.clientY);
     // Convert a few CSS px of edge tolerance into world units (DESIGN-style
@@ -162,9 +174,9 @@ function setupDrawing() {
 //   • POLYLINE (P): many points — double-click or Enter finishes (≥2 points).
 // ESC cancels the whole draft (nothing committed). All clicks convert to world
 // coords through the SHARED screenToWorld helper — no new coordinate math.
-const CLICK_TOOLS = { L: "line", P: "polyline" };
+const CLICK_TOOLS = { L: "line", P: "polyline", C: "curve" };
 
-let clickTool = null;     // armed click-to-click tool ("L"/"P") while drafting, else null
+let clickTool = null;     // armed click-to-click tool ("L"/"P"/"C") while drafting, else null
 let draftPoints = [];     // world-space vertices placed so far
 let mouseWorld = null;    // last mouse world pos, for the rubber-band segment
 
@@ -191,28 +203,28 @@ function setupClickDrawing() {
     updateDraftPreview();
   });
 
-  // Double-click finishes a polyline. Its two click events already appended a
-  // duplicate vertex at the finish spot, so drop it before committing.
+  // Double-click finishes a polyline or curve. Its two click events already
+  // appended a duplicate vertex at the finish spot, so drop it before committing.
   _svg.addEventListener("dblclick", () => {
-    if (clickTool !== "P") return;
+    if (clickTool !== "P" && clickTool !== "C") return;
     if (draftPoints.length > 0) draftPoints.pop();
     finishPolyline();
   });
 
-  // Enter finishes a polyline; Esc cancels any in-progress click draft.
+  // Enter finishes a polyline/curve; Esc cancels any in-progress click draft.
   window.addEventListener("keydown", (e) => {
     if (!clickTool) return;
     if (e.key === "Escape") { e.preventDefault(); resetClickDraft(); }
-    else if (e.key === "Enter" && clickTool === "P") { e.preventDefault(); finishPolyline(); }
+    else if (e.key === "Enter" && (clickTool === "P" || clickTool === "C")) { e.preventDefault(); finishPolyline(); }
   });
 }
 
 // Live preview = the placed segments PLUS a rubber-band from the last vertex to
-// the mouse. Rendered as a solid polyline (render.js) so it matches the result.
+// the mouse. For curve, renders as a smooth curve preview so it matches the result.
 function updateDraftPreview() {
   if (!clickTool || draftPoints.length === 0) return;
   const pts = mouseWorld ? [...draftPoints, mouseWorld] : draftPoints.slice();
-  _state.update((s) => { s.draft = makePolyline(pts); });
+  _state.update((s) => { s.draft = clickTool === "C" ? makeCurve(pts) : makePolyline(pts); });
 }
 
 // LINE: exactly two clicks. Commit a real line object, or cancel a zero-length one.
@@ -222,10 +234,11 @@ function commitLine() {
   else resetClickDraft();
 }
 
-// POLYLINE: needs ≥2 vertices; otherwise the draft is discarded.
+// POLYLINE / CURVE: needs ≥2 vertices; otherwise the draft is discarded.
 function finishPolyline() {
   if (draftPoints.length < 2) { resetClickDraft(); return; }
-  commitClickShape(makePolyline(draftPoints));
+  const shape = clickTool === "C" ? makeCurve(draftPoints) : makePolyline(draftPoints);
+  commitClickShape(shape);
 }
 
 // Push a finished click-to-click shape through the SAME store path as the drag
@@ -271,7 +284,20 @@ function hitTest(objects, p, tol = 0) {
   for (let i = objects.length - 1; i >= 0; i--) {
     const o = objects[i];
     if (o.type !== "rect" && o.type !== "ellipse" && o.type !== "triangle" &&
-        o.type !== "line" && o.type !== "polyline") continue;
+        o.type !== "line" && o.type !== "polyline" && o.type !== "curve" &&
+        o.type !== "text") continue;
+
+    if (o.type === "text") {
+      // Use the rendered SVG element's getBBox for an accurate hit area.
+      const svgEl = _svg.querySelector(`[data-id="${o.id}"]`);
+      if (!svgEl) continue;
+      try {
+        const bb = svgEl.getBBox();
+        if (p.x >= bb.x - tol && p.x <= bb.x + bb.width + tol &&
+            p.y >= bb.y - tol && p.y <= bb.y + bb.height + tol) return o.id;
+      } catch (_) { /* element not in layout yet */ }
+      continue;
+    }
     // A line has no area: clickable band = stroke half-width + the screen-px
     // slack already converted to world units (tol = tolerancePx / currentZoom),
     // so the band stays visually constant at any zoom (DESIGN-style tolerance).
@@ -288,6 +314,29 @@ function hitTest(objects, p, tol = 0) {
       for (let k = 0; k < pts.length - 1; k++) {
         if (segDist(p.x, p.y, pts[k].x, pts[k].y, pts[k + 1].x, pts[k + 1].y) <= margin) return o.id;
       }
+      continue;
+    }
+
+    if (o.type === "curve") {
+      const pts = o.points || [];
+      if (pts.length < 2) continue;
+      if (pts.length === 2) {
+        if (segDist(p.x, p.y, pts[0].x, pts[0].y, pts[1].x, pts[1].y) <= margin) return o.id;
+        continue;
+      }
+      // Sample each Catmull-Rom Bezier segment to get fine-grained hit detection.
+      const SAMPLES = 12;
+      let hit = false;
+      for (let k = 0; k < pts.length - 1 && !hit; k++) {
+        const seg = curveBezierSeg(pts, k);
+        let prev = { x: seg.sx, y: seg.sy };
+        for (let s = 1; s <= SAMPLES; s++) {
+          const cur = evalBezier(seg, s / SAMPLES);
+          if (segDist(p.x, p.y, prev.x, prev.y, cur.x, cur.y) <= margin) { hit = true; break; }
+          prev = cur;
+        }
+      }
+      if (hit) return o.id;
       continue;
     }
 
@@ -350,7 +399,7 @@ function segDist(px, py, ax, ay, bx, by) {
 // `type` is "rect" | "ellipse" | "triangle"; all share this identical structure.
 function makeShape(type, a, b) {
   if (type === "line") return makeLine(a, b);
-  return {
+  const shape = {
     id: null, // assigned on commit
     type,
     x: Math.min(a.x, b.x),
@@ -366,6 +415,8 @@ function makeShape(type, a, b) {
     layerId: 1,
     order: 0,              // assigned on commit (z-order within layer)
   };
+  if (type === "triangle") shape.flipX = b.x < a.x;
+  return shape;
 }
 
 /* ----- build an endpoint-based line from two world points (DESIGN 2-1 branch B) ----- */
@@ -400,4 +451,137 @@ function makePolyline(points) {
     layerId: 1,
     order: 0,              // assigned on commit (z-order within layer)
   };
+}
+
+/* ----- build a curve from a list of world points (click-to-click, Catmull-Rom) ----- */
+function makeCurve(points) {
+  return {
+    id: null,
+    type: "curve",
+    points: points.map((p) => ({ x: p.x, y: p.y })),
+    rotation: 0,
+    strokeLevel: 0,
+    strokeWidth: DEFAULT_STROKE_WIDTH,
+    locked: false,
+    layerId: 1,
+    order: 0,
+  };
+}
+
+/* ----- Catmull-Rom cubic Bezier control points for segment i → i+1 ----- */
+function curveBezierSeg(pts, i) {
+  const n = pts.length;
+  const p0 = pts[Math.max(i - 1, 0)];
+  const p1 = pts[i];
+  const p2 = pts[i + 1];
+  const p3 = pts[Math.min(i + 2, n - 1)];
+  return {
+    sx: p1.x, sy: p1.y,
+    cp1x: p1.x + (p2.x - p0.x) / 6, cp1y: p1.y + (p2.y - p0.y) / 6,
+    cp2x: p2.x - (p3.x - p1.x) / 6, cp2y: p2.y - (p3.y - p1.y) / 6,
+    ex: p2.x, ey: p2.y,
+  };
+}
+
+/* ----- evaluate cubic Bezier at parameter t ∈ [0,1] ----- */
+function evalBezier(seg, t) {
+  const u = 1 - t;
+  return {
+    x: u*u*u*seg.sx + 3*u*u*t*seg.cp1x + 3*u*t*t*seg.cp2x + t*t*t*seg.ex,
+    y: u*u*u*seg.sy + 3*u*u*t*seg.cp1y + 3*u*t*t*seg.cp2y + t*t*t*seg.ey,
+  };
+}
+
+/* ===== TEXT TOOL (T) ===== */
+//
+// Single-click places an inline <textarea> overlay at the click position.
+// Enter commits; Shift+Enter inserts a newline; ESC cancels.
+// On commit the textarea is removed and a text object is pushed to state.
+
+let _textEditor = null;     // the live <textarea>, or null
+let _textAnchor = null;     // world-space {x,y} of the text origin
+let _textCancelled = false; // set by ESC so blur doesn't double-commit
+
+function setupTextTool() {
+  _svg.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    if (spaceHeld) return;
+    if (_state.get().activeTool !== "T") return;
+    e.preventDefault();
+
+    // If an editor is already open (e.g. clicked canvas a second time while T
+    // is still active — unusual path), commit it and return.  The blur will
+    // have already fired before mousedown so usually this guard won't trigger.
+    if (_textEditor) { _commitText(); return; }
+
+    const vb = _state.get().viewBox;
+    _textAnchor = screenToWorld(_svg, vb, e.clientX, e.clientY);
+
+    const wrap = _svg.closest(".canvas-wrap");
+    const wr = wrap.getBoundingClientRect();
+
+    _textCancelled = false;
+    _textEditor = document.createElement("textarea");
+    _textEditor.className = "text-editor-overlay";
+    _textEditor.style.left = (e.clientX - wr.left) + "px";
+    _textEditor.style.top  = (e.clientY - wr.top)  + "px";
+    _textEditor.rows = 1;
+    wrap.appendChild(_textEditor);
+    _textEditor.focus();
+
+    _textEditor.addEventListener("keydown", (ke) => {
+      if (ke.key === "Escape") {
+        ke.preventDefault();
+        _textCancelled = true;
+        _removeTextEditor();
+      } else if (ke.key === "Enter" && !ke.shiftKey) {
+        ke.preventDefault();
+        _commitText();
+      }
+      // Shift+Enter falls through → native newline in textarea
+    });
+
+    _textEditor.addEventListener("blur", () => {
+      if (!_textCancelled) _commitText();
+    });
+  });
+}
+
+function _removeTextEditor() {
+  if (!_textEditor) return;
+  const el = _textEditor;
+  _textEditor = null; // null first to prevent blur re-entrancy
+  _textAnchor = null;
+  el.remove();
+}
+
+function _commitText() {
+  if (!_textEditor) return;
+  const val = _textEditor.value;
+  const anchor = _textAnchor; // capture before removeTextEditor nulls it
+  _removeTextEditor();
+
+  _state.update((s) => {
+    if (val.trim()) {
+      s.objects.push({
+        id: `obj_${Date.now().toString(36)}_${++_idCounter}`,
+        type: "text",
+        x: anchor.x,
+        y: anchor.y,
+        text: val,
+        fontSize: 14,
+        rotation: 0,
+        locked: false,
+        layerId: 1,
+        order: s.objects.length,
+      });
+    }
+    s.activeTool = "V";
+  });
+}
+
+function cancelActiveTextEditor() {
+  if (!_textEditor) return;
+  _textCancelled = true;
+  _removeTextEditor();
 }

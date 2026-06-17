@@ -182,6 +182,23 @@ body {
 #canvas.is-panning { cursor: grabbing; }
 #canvas.space-held { cursor: grab; }
 
+/* ===== TEXT EDITOR OVERLAY (T tool) ===== */
+.text-editor-overlay {
+  position: absolute;
+  z-index: 100;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1.5px solid var(--c-main, #0969da);
+  border-radius: 2px;
+  padding: 2px 4px;
+  font-family: "IBM Plex Sans KR", sans-serif;
+  font-size: 14px;
+  min-width: 80px;
+  resize: none;
+  outline: none;
+  line-height: 1.4;
+  overflow: hidden;
+}
+
 /* ===== FOOTER ===== */
 .app-footer {
   flex: 0 0 auto;

@@ -28,4 +28,9 @@ export const state = createStore({
 
   // selectedId: id of the currently selected object (V tool), or null.
   selectedId: null,
+
+  // undoStack / redoStack: each entry is a deep-cloned objects array snapshot.
+  // Populated by transform.js; nothing else should touch these directly.
+  undoStack: [],
+  redoStack: [],
 });

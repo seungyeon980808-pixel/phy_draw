@@ -25,7 +25,7 @@
         <button class="tool-btn" type="button" data-tool="V" title="선택 (V)">
           <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3 L4 15.5 L7.5 12 L9.8 16.5 L11.7 15.6 L9.4 11.2 L14.5 11 Z"/></svg></kbd>
         </button>
-        <button class="tool-btn" type="button" data-tool="R" title="사각형 (R)">
+        <button class="tool-btn" type="button" data-tool="R" title="사각형 (S)">
           <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5.5" width="13" height="9"/></svg></kbd>
         </button>
         <button class="tool-btn" type="button" data-tool="O" title="타원 (O)">
@@ -40,6 +40,15 @@
         <button class="tool-btn" type="button" data-tool="P" title="다각선 (P)">
           <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3.5,14 7.5,6.5 12,12.5 16.5,5.5"/></svg></kbd>
         </button>
+        <button class="tool-btn" type="button" data-tool="C" title="곡선 (C)">
+          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5,14 C5,4 9,4 10,10 S15,16 16.5,6"/></svg></kbd>
+        </button>
+        <button class="tool-btn" type="button" data-tool="T" title="텍스트 (T)">
+          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="5" x2="16" y2="5"/><line x1="10" y1="5" x2="10" y2="16"/></svg></kbd>
+        </button>
+        <button class="tool-btn" type="button" data-tool="rotate" title="회전 (R)">
+          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5.5 A6.5 6.5 0 1 0 16.5 10"/><polyline points="14,3 16.5,5.5 14,8"/></svg></kbd>
+        </button>
       </div>
     </aside>
 
@@ -47,7 +56,7 @@
     <main class="panel panel-center">
       <div class="canvas-toolbar">
         <span class="hint">
-          R = 사각형 (드래그로 그리기) · Ctrl+휠 = 줌(커서 기준) · 가운데버튼/Space+드래그 = 팬
+          T = 텍스트 · S/O/Y = 도형 · L/P/C = 선 · R = 회전 · 휠 = 수직팬 · Shift+휠 = 수평팬 · Ctrl+휠 = 줌 · Space+드래그 = 팬
         </span>
         <span id="zoom-readout" class="zoom-readout">zoom 1.00×</span>
       </div>
@@ -75,11 +84,11 @@
 
   <!-- ===== FOOTER: version + date ===== -->
   <footer class="app-footer">
-    PhysicsExamDrawer Web · <strong>v0.4.4</strong> · 2026-06-17
+    PhysicsExamDrawer Web · <strong>v0.7.0</strong> · 2026-06-17
   </footer>
 
   <!-- ===== MODULES (load order matters: store → state → viewport → render → main) ===== -->
   <!-- ?v= busts the ES-module cache so edits actually load (DESIGN: cache-bust) -->
-  <script type="module" src="js/main.js?v=0.4.4"></script>
+  <script type="module" src="js/main.js?v=0.7.0"></script>
 </body>
 </html>

@@ -59,28 +59,44 @@ export function initViewport(svg, state, onChange) {
   // notify caller (main) that viewBox changed → it writes SVG + re-renders
   const commit = () => onChange();
 
-  /* --- wheel zoom, anchored on cursor (world point under cursor stays put) --- */
+  /* --- wheel: plain = vertical pan, Shift = horizontal pan, Ctrl = zoom --- */
+  const PAN_SPEED = 1.0; // world units per pixel of deltaY
   svg.addEventListener(
     "wheel",
     (e) => {
-      if (!e.ctrlKey) return;
+      if (!e.ctrlKey && !e.shiftKey) {
+        // plain scroll → pan vertically
+        e.preventDefault();
+        state.update((s) => {
+          s.viewBox.y += e.deltaY * PAN_SPEED / currentZoom(svg, s.viewBox);
+        });
+        commit();
+        return;
+      }
+      if (e.shiftKey && !e.ctrlKey) {
+        // Shift+scroll → pan horizontally (deltaY repurposed; most mice have one axis)
+        e.preventDefault();
+        state.update((s) => {
+          s.viewBox.x += e.deltaY * PAN_SPEED / currentZoom(svg, s.viewBox);
+        });
+        commit();
+        return;
+      }
+      // Ctrl+scroll → zoom anchored on cursor (world point under cursor stays put)
       e.preventDefault();
       state.update((s) => {
         const vb = s.viewBox;
-        // world point under the cursor before zoom
         const before = screenToWorld(svg, vb, e.clientX, e.clientY);
 
         const factor = Math.pow(ZOOM_STEP, e.deltaY);
         let newW = vb.w * factor;
         let newH = vb.h * factor;
 
-        // clamp on width, keep aspect via the same factor
         const clampedW = Math.min(MAX_W, Math.max(MIN_W, newW));
         const k = clampedW / vb.w;
         newW = vb.w * k;
         newH = vb.h * k;
 
-        // re-anchor so `before` maps back under the same cursor pixel
         const rect = svg.getBoundingClientRect();
         const fx = (e.clientX - rect.left) / rect.width;
         const fy = (e.clientY - rect.top) / rect.height;
