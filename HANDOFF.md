@@ -8,8 +8,8 @@
 
 ## 0. 한 줄 요약
 
-**v0.6.0 완료.** Phase 1의 1A(토대)·1B(도형 7종·줌팬)·1C-a(이동·Undo)·1C-b(핸들·크기조절) 완료.
-다음은 **1C-c(회전)** → 이후 Delete·화살표키·Ctrl+C/V → Phase 2(레이어·인스펙터).
+**v0.7.1 완료.** Phase 1 완료, Phase 2 인스펙터 완료, 그룹 묶기 + 더블클릭 지목 완료.
+다음은 **Phase 2 나머지 — 레이어 3개**.
 
 ---
 
@@ -17,7 +17,7 @@
 
 - **무엇**: 중학교 과학(물리) 시험 문제용 그림을 그리는 웹 기반 SVG 에디터.
 - **왜**: PyQt6 `physics_draw` 프로그램을 웹앱으로 이식. data-as-truth로 아키텍처 개선.
-- **사용자**: 서울 대왕중학교 과학교사 본인. JS 학습 3~4주차. 코드는 Claude가 짜고 설계·리뷰만 직접.
+- **사용자**: 서울 대왕중학교 과학교사 본인. JS 학습 중. 코드는 Claude가 짜고 설계·리뷰만 직접.
 
 ---
 
@@ -25,96 +25,75 @@
 
 ```
 C:\Users\user\Desktop\project\51_phy_draw_web\
-├── index.html          ← 앱 껍데기, 3패널, SVG#canvas, v0.6.0 표기
-├── css/style.css
+├── index.html
+├── css/
+│   ├── style.css
+│   └── inspector.css
 └── js/
-    ├── state.js        ← 초기 상태 (objects, viewBox, activeTool, selectedId,
-    │                      draft, undoStack, redoStack)
-    ├── store.js        ← createStore (subscribe/update/get, 30줄)
-    ├── render.js       ← render(state) + renderHandles() (핸들 7px/zoom 고정)
-    ├── viewport.js     ← initViewport (휠줌·팬) + screenToWorld + getZoom
-    ├── tools.js        ← initTools (8종 도구, hitTest 실제모양 기준)
-    ├── transform.js    ← initTransform (이동·크기조절·Undo/Redo)
-    └── main.js         ← 모듈 연결 (import 순서: state→render→viewport→tools→transform)
+    ├── state.js
+    ├── store.js
+    ├── render.js
+    ├── viewport.js
+    ├── tools.js
+    ├── transform.js
+    ├── inspector.js
+    └── main.js
 ```
 
-**버전 문자열**: 모든 import에 `?v=0.6.0` 붙임. 파일 수정 시 반드시 일괄 변경.
+**버전 문자열**: 모든 import에 `?v=` 붙임. 파일 수정 시 반드시 일괄 변경.
 
 ---
 
-## 3. 완료된 기능 (v0.6.0 기준)
+## 3. 완료된 기능
 
-### Phase 1A — 토대
-- store (subscribe/update/get), data-as-truth, SVG viewBox 좌표계
-- 아트보드 90×65mm (중앙 원점, 흰 배경 + 회색 테두리)
+### Phase 1 — 기본 캔버스 엔진 (완료)
+- SVG+viewBox, store, data-as-truth 토대
+- 도형 7종: 직선(L)·꺾은선(P)·사각형(S)·타원(O)·직각삼각형(Y)·곡선(C)·텍스트(T)
+- 줌·팬 (Ctrl+휠 커서앵커, Space+드래그, 중간버튼, 휠/Shift+휠)
+- 선택(V)·이동·Undo/Redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y)
+- 크기조절 (핸들 8방향, Shift=비율고정)
+- 회전 도구 (R): 코너 핸들 드래그, 피벗=대각 반대 꼭짓점, 저장은 중심기준 정규화
+- R 도구: 방향키로 flipX·flipY 토글, PageUp/Down으로 5도씩 회전
+- V 도구: Delete 삭제·화살표 nudge(0.5/Ctrl=5)·Ctrl+C/V·PageUp/Down z순서
+- 개체 잠금 (K): locked=true 시 빨간 가이드라인, 수정 불가
+- 삼각형 flipX·flipY (4방향 조합)
+- 드래그 박스 선택 (V 도구에서 빈 캔버스 드래그)
+- Shift+클릭 다중선택, 다중선택 상태에서 함께 이동
+- 히트테스트: 실제 도형 모양 기준 (DESIGN 5-1)
+- 빈 도형 클릭 가능: transparent fill (DESIGN 5-3)
+- 핸들: 고정 10px (10/zoom), 회전존 28/zoom
 
-### Phase 1B — 도형 7종 + 줌팬
-- **갈래 A** (크기 기반): rect·ellipse·triangle — 드래그로 그리기
-- **갈래 B** (끝점 기반): line·polyline·curve — 클릭으로 그리기 (P는 더블클릭/Enter 종료)
-- **text**: 클릭 위치에 생성, 인라인 편집
-- 그린 직후 V(선택도구)로 자동 복귀 + 방금 그린 것 선택됨
-- hitTest: 실제 도형 모양 기준 (DESIGN 5-1), 빈 도형 = transparent fill로 클릭 가능 (DESIGN 5-3)
-- 줌: Ctrl+휠 (커서 앵커), 팬: Space+드래그 / 중간버튼 / 휠(수직) / Shift+휠(수평)
-- **삼각형 flipX**: 오른쪽 드래그=직각좌하, 왼쪽 드래그=직각우하. 스키마에 `flipX: boolean` 필드 있음.
-  - flipY는 나중에 추가 예정 (비용 낮음, 같은 패턴)
+### Phase 2 — 인스펙터 (완료)
+- 선 명도·굵기 (색 선택기: 그라데이션 바 + 팔레트 7단계 + 드래그 핸들)
+- 채우기 없음 토글·채우기 명도
+- 크기·위치 (X/Y/W/H/회전각) — 갈래 A만, Enter/blur 시 확정 + Undo
+- 개체 잠금 체크박스
+- 다중선택 시 선·채우기 섹션만 표시
+- 단일선택 시 전체 섹션 표시
+- 선택 없음 시 "선택된 오브젝트 없음" 표시
 
-### Phase 1C-a — 이동 + Undo/Redo (transform.js)
-- V 선택 상태에서 선택된 도형 바디 드래그 → 이동
-- 2단계 방식: 클릭=선택, 선택된 것을 다시 눌러야 드래그 시작 (tools.js 충돌 회피)
-- 전체 스냅샷 Undo (structuredClone 대신 JSON 왕복). undoStack/redoStack in state.
-- Ctrl+Z=undo, Ctrl+Shift+Z=redo, Ctrl+Y=redo
-- 빈 클릭은 undoStack에 안 쌓임 (이동 threshold 0.01 world unit)
-
-### Phase 1C-b — 핸들 렌더 + 크기조절 + 끝점 핸들
-- **핸들**: 고정 7px (world = 7/zoom), 흰 채움 + 파란 테두리. render.js의 renderHandles()
-- **갈래 A 크기조절**: 8방향 핸들 (nw/n/ne/e/se/s/sw/w). Shift=비율 고정
-  - 비율고정: 핸들 종류로 기준 축 고정 (e/w=w기준, n/s=h기준, 코너=w기준). 매 프레임 비교 안 함 → 튀는 버그 없음
-  - MIN_SIZE = 0.3 world unit 클램프
-- **갈래 B 끝점 핸들**: line=p0·p1, polyline/curve=p{i} 핸들로 끝점 이동
-- **text**: 핸들 없음 (fontSize는 나중에 인스펙터에서)
-- 크기조절·끝점이동 모두 Ctrl+Z로 되돌아감
-- **핸들 히트 감지 버그 수정**: tools.js mousedown 맨 앞에 `if (e.target.dataset.handle) return` 가드 추가 → 도형 바깥 핸들(타원 모서리 등)도 정상 작동
-
----
-
-## 4. 아직 안 한 것 (다음 순서)
-
-### 4-1. 1C-c — 회전 (다음 단계)
-- 회전 핸들: 선택 bbox 위쪽 중앙에서 일정 거리 위, 원형 아이콘
-- 드래그 시 도형 중심 기준 회전, Ctrl=15도 스냅 (DESIGN 4-1)
-- 갈래 A만 해당 (rect/ellipse/triangle). 갈래 B(line 등)는 회전 없음 (끝점 이동으로 대체)
-- rotation 필드는 이미 스키마에 있고 renderObject에서 transform="rotate(...)"로 반영 중
-
-### 4-2. 나머지 편집 단축키
-- Delete: 선택 개체 삭제
-- 화살표키: 선택 개체 1단위 이동 (미세조정)
-- Ctrl+C / Ctrl+V: 복사·붙여넣기 (붙여넣기는 마우스 커서 위치에 생성)
-
-### 4-3. Phase 2 — 레이어 & 인스펙터
-- 레이어 3개 고정 (활성 전환·비활성 투명), 레이어 내 z순서 (PageUp/Down)
-- 인스펙터: 선 굵기·명도·채우기, 크기·회전, 개체 보호
-  - **선 굵기 두 곳**: 기본값(설정, 새 도형용) + 오브젝트별(인스펙터, 이미 그린 것)
-  - 지금 DEFAULT_STROKE_WIDTH 상수가 tools.js에 있음 → Phase 2에서 state.defaultStrokeWidth로 이관 예정
-- 색 선택기 (무채색 1D: 그라데이션 바 + 팔레트 + 슬라이더)
-
-### 4-4. 이후
-- Phase 3: 그룹·물리 템플릿 (광학부터)
-- Phase 4: 저장·내보내기·미리보기
-- Phase 5: AI 연동 (Claude API)
+### 그룹 묶기 (완료)
+- G: 다중선택 → 그룹 묶기 (초록 가이드라인) — 동작
+- Shift+G / 인스펙터 "개체 풀기": 그룹 전체 해제 — 동작
+- 그룹 클릭 → 전체 선택 — 동작
+- 그룹 이동·비율고정 크기조절 — 동작
+- 더블클릭 지목: 그룹 내 개체 하나 지목 → 주황 가이드라인, 모든 변형 차단 — 동작
+  - 빈 공간 클릭·다른 개체 클릭·마퀴 선택 시 지목 해제
 
 ---
 
-## 5. 스키마 현황 (data-as-truth 진실)
+## 4. 스키마 현황 (data-as-truth 진실)
 
 ```js
 // 공통
-{ id, type, rotation, strokeLevel, strokeWidth, fillLevel, fillNone, layerId, order }
+{ id, type, rotation, strokeLevel, strokeWidth,
+  fillLevel, fillNone, locked, layerId, order, groupId }
 
 // 갈래 A (rect / ellipse)
 { ...공통, x, y, w, h }
 
 // 갈래 A (triangle)
-{ ...공통, x, y, w, h, flipX: boolean }   // flipY는 나중에 추가
+{ ...공통, x, y, w, h, flipX, flipY }
 
 // 갈래 B (line)
 { ...공통, p1:{x,y}, p2:{x,y} }
@@ -126,36 +105,102 @@ C:\Users\user\Desktop\project\51_phy_draw_web\
 { ...공통, x, y, fontSize, text }
 
 // state 최상위
-{ objects:[], viewBox:{x,y,w,h}, activeTool, selectedId, draft,
-  undoStack:[], redoStack:[] }
+{ objects:[],
+  viewBox:{x,y,w,h},
+  activeTool,
+  draft,
+  selectedIds:[],       // 단일/다중 선택 id 배열
+  targetedId: null,     // 그룹 내 더블클릭으로 지목된 개체 id
+  groups:[{ id, memberIds:[] }],
+  undoStack:[],
+  redoStack:[] }
 ```
 
 ---
 
-## 6. 맥락 복원 방법 (다음 대화 시작 시)
+## 5. 단축키 현황
 
-1. **이 문서(HANDOFF.md) + DESIGN.md 첨부**하고 시작
-2. 현재 코드가 필요한 경우 `tools.js`, `render.js`, `transform.js` 추가 첨부
-3. 첫 메시지 예시:
-   > "PhysicsExamDrawer Web v0.6.0에서 이어서 합니다. HANDOFF.md와 DESIGN.md 첨부했어. 다음 단계는 1C-c(회전)입니다."
+| 키 | 동작 |
+|---|---|
+| V | 선택 도구 |
+| L | 직선 |
+| P | 꺾은선 |
+| S | 사각형 |
+| O | 타원 |
+| Y | 직각삼각형 |
+| C | 곡선 |
+| T | 텍스트 |
+| R | 회전 도구 |
+| K | 개체 잠금 토글 (V 도구) |
+| G | 그룹 묶기 (V 도구, 다중선택 시) |
+| Shift+G | 그룹 풀기 |
+| Delete | 선택 개체 삭제 |
+| Ctrl+Z | Undo |
+| Ctrl+Shift+Z / Ctrl+Y | Redo |
+| Ctrl+C / Ctrl+V | 복사·붙여넣기 (커서 위치+오프셋) |
+| 화살표키 (V 도구) | nudge 이동 (0.5 / Ctrl=5 world unit) |
+| 화살표키 (R 도구) | ←→ flipX 토글 / ↑↓ flipY 토글 |
+| PageUp/Down (V 도구) | z순서 한 칸 이동 |
+| PageUp/Down (R 도구) | 5도씩 회전 |
 
 ---
 
-## 7. 작업 원칙 (CLAUDE.md 요약)
+## 6. 가이드라인 색상
 
-- **역할 분리**: Claude(웹)=기획·설계·리뷰만. 파일 생성·코드 작성=Claude Code에서만.
+| 상태 | 색상 |
+|---|---|
+| 일반 선택 | 파란색 #0969da |
+| 잠금(locked) | 빨간색 #e53e3e |
+| 그룹 묶음 | 초록색 #2f9e44 |
+| 그룹 내 지목 (더블클릭) | 주황색 #e67700 |
+
+---
+
+## 7. 다음 작업 순서
+
+### 즉시 — Phase 2 나머지: 레이어 3개
+   - 고정 3개 레이어 (추가·삭제 없음, 이름변경만)
+   - 활성 레이어 전환 (클릭)
+   - 비활성 레이어 = 클릭 통과 + 살짝 투명 (opacity 0.5)
+   - PageUp/Down: 같은 레이어 안에서만 z순서 이동
+
+2. Phase 3 — 물리 템플릿 (광학부터: 렌즈·거울 등)
+
+3. Phase 4 — 저장·내보내기·미리보기
+   - JSON 저장/불러오기
+   - PNG(300dpi)·SVG 내보내기
+   - 100mm 아트보드 출력
+   - 미리보기 모달 (샘플 문제 틀 합성)
+
+4. Phase 5 — AI 연동 (Claude API 채팅, SVG 생성→정규화 삽입)
+
+---
+
+## 8. 맥락 복원 방법 (다음 대화 시작 시)
+
+1. **이 문서(HANDOFF.md) + DESIGN.md 첨부**하고 시작
+2. 버그 수정 시 tools.js·transform.js·render.js 추가 첨부
+3. 첫 메시지 예시:
+   > "PhysicsExamDrawer Web 이어서 합니다. HANDOFF.md와 DESIGN.md 첨부했어.
+   > 그룹 내 더블클릭 지목 버그부터 수정합니다."
+
+---
+
+## 9. 작업 원칙 (CLAUDE.md 요약)
+
+- **역할 분리**: Claude(웹) = 기획·설계·리뷰만. 파일 생성·코드 작성 = Claude Code에서만.
 - **프롬프트 형식**: 한국어 요약 + 영어 실행 + 마지막에 "Do not ask clarifying questions. Make reasonable assumptions and proceed."
 - **Claude Code 실행**: `claude --dangerously-skip-permissions`, 작업 전 `/clear`
 - **버전 규칙**: `vX.0.0`=구조변경, `v0.X.0`=기능추가, `v0.0.X`=버그픽스. UI 하단에 표기.
 - **import 버전 문자열**: `?v=숫자` 모든 import에 일괄. 버전 올릴 때 전부 바꿀 것.
 - **커밋**: Conventional Commits (feat/fix/chore/docs/style). 작업 완료 후 push.
-- **파일 수정 원칙**: 타깃만 수정, 광범위한 리팩토링 금지. 한 파일이 비대해지면 분리 제안.
+- **파일 수정 원칙**: 타깃만 수정, 광범위한 리팩토링 금지. 필요한 줄/섹션만 읽게 지정.
 - **되돌리기 비싼 결정** (변경 금지): 상태 모델, 좌표계, 데이터 스키마, 히트테스트 방식
 - **되돌리기 싼 결정** (구현하며 조정 가능): 단축키 글자, 픽셀 간격, 기본값 상수
 
 ---
 
-## 8. GitHub
+## 10. GitHub
 
 - 레포: `seungyeon980808-pixel / phy_draw`
 - URL: `https://github.com/seungyeon980808-pixel/phy_draw.git`

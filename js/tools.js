@@ -11,7 +11,7 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld } from "./viewport.js?v=0.7.0";
+import { screenToWorld } from "./viewport.js?v=0.7.1";
 
 // Default look until the inspector exists (DESIGN §3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.5; // world units (≈0.5mm on the 100mm artboard)
@@ -94,6 +94,9 @@ let startWorld = null; // world coord of the mouse-down point
 let drawType = null;   // type being drawn for the current drag
 let spaceHeld = false; // mirror viewport's Space-pan so we never draw while panning
 
+let _marqueeStart = null; // world {x,y} of marquee drag start, or null
+let _marqueeEl = null;    // temporary SVG <rect> shown during marquee drag
+
 function setupDrawing() {
   // track Space locally so a Space+drag pans (viewport) instead of drawing.
   window.addEventListener("keydown", (e) => { if (e.code === "Space") spaceHeld = true; });
@@ -109,7 +112,7 @@ function setupDrawing() {
     // A click on a selection handle means "manipulate the selected object",
     // NOT "change selection". Handles can sit OUTSIDE the shape outline
     // (ellipse/triangle corners), where hitTest finds empty space and would
-    // wrongly clear selectedId — breaking transform.js's handle-drag guard.
+    // wrongly clear selectedIds — breaking transform.js's handle-drag guard.
     const tgt = e.target;
     if (tgt && tgt.dataset && tgt.dataset.handle) return;
     const vb = _state.get().viewBox;
@@ -117,7 +120,55 @@ function setupDrawing() {
     // Convert a few CSS px of edge tolerance into world units (DESIGN-style
     // tolerance) so thin strokes are easy to hit.
     const tol = (HIT_TOL_PX * vb.w) / _svg.getBoundingClientRect().width;
-    _state.update((s) => { s.selectedId = hitTest(s.objects, p, tol); });
+    const shiftHeld = e.shiftKey;
+    let hitId = null;
+    _state.update((s) => {
+      hitId = hitTest(s.objects, p, tol);
+      if (hitId === null) {
+        if (_at !== "V") s.selectedIds = []; // rotate: clear immediately
+        // V: defer selection to mouseup so marquee can run
+      } else if (shiftHeld) {
+        const idx = s.selectedIds.indexOf(hitId);
+        if (idx === -1) s.selectedIds = [...s.selectedIds, hitId];
+        else s.selectedIds = s.selectedIds.filter(id => id !== hitId);
+      } else {
+        const _hitObj = s.objects.find((o) => o.id === hitId);
+        if (_hitObj && _hitObj.groupId) {
+          if (e.detail >= 2) {
+            // Double-click targets the individual member (DESIGN 6-2). We detect
+            // it here via e.detail rather than via a dblclick listener: every
+            // mousedown re-renders (scene.replaceChildren), detaching the clicked
+            // node before mouseup, so the browser never fires click/dblclick.
+            s.targetedId = hitId;
+            s.selectedIds = [hitId];
+          } else if (s.targetedId === hitId) {
+            // Already targeting this member — preserve targeted state
+            s.selectedIds = [hitId];
+          } else {
+            const _grp = s.groups.find((g) => g.id === _hitObj.groupId);
+            s.selectedIds = _grp ? [..._grp.memberIds] : [hitId];
+            s.targetedId = null;
+          }
+        } else if (!s.selectedIds.includes(hitId)) {
+          s.selectedIds = [hitId];
+          s.targetedId = null;
+        }
+      }
+    });
+    if (hitId === null && _at === "V") {
+      _marqueeStart = { x: p.x, y: p.y };
+      _marqueeEl = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      _marqueeEl.setAttribute("fill", "rgba(9,105,218,0.08)");
+      _marqueeEl.setAttribute("stroke", "#0969da");
+      _marqueeEl.setAttribute("stroke-width", "0.3");
+      _marqueeEl.setAttribute("stroke-dasharray", "1.5 1");
+      _marqueeEl.setAttribute("pointer-events", "none");
+      _marqueeEl.setAttribute("x", p.x);
+      _marqueeEl.setAttribute("y", p.y);
+      _marqueeEl.setAttribute("width", "0");
+      _marqueeEl.setAttribute("height", "0");
+      _svg.appendChild(_marqueeEl);
+    }
   });
 
   _svg.addEventListener("mousedown", (e) => {
@@ -162,6 +213,54 @@ function setupDrawing() {
       }
     });
   });
+
+  // Marquee drag — update the dashed selection rect while dragging empty space.
+  window.addEventListener("mousemove", (e) => {
+    if (!_marqueeStart) return;
+    const vb = _state.get().viewBox;
+    const cur = screenToWorld(_svg, vb, e.clientX, e.clientY);
+    const rx = Math.min(_marqueeStart.x, cur.x);
+    const ry = Math.min(_marqueeStart.y, cur.y);
+    const rw = Math.abs(cur.x - _marqueeStart.x);
+    const rh = Math.abs(cur.y - _marqueeStart.y);
+    _marqueeEl.setAttribute("x", rx);
+    _marqueeEl.setAttribute("y", ry);
+    _marqueeEl.setAttribute("width", rw);
+    _marqueeEl.setAttribute("height", rh);
+  });
+
+  // Marquee drag — commit or cancel on mouse-up.
+  window.addEventListener("mouseup", (e) => {
+    if (!_marqueeStart) return;
+    const vb = _state.get().viewBox;
+    const cur = screenToWorld(_svg, vb, e.clientX, e.clientY);
+    const start = _marqueeStart;
+    _marqueeStart = null;
+    if (_marqueeEl) { _marqueeEl.remove(); _marqueeEl = null; }
+
+    const dist = Math.hypot(cur.x - start.x, cur.y - start.y);
+    if (dist < 2) {
+      // Plain empty-click — clear selection.
+      _state.update((s) => { s.selectedIds = []; s.targetedId = null; });
+      return;
+    }
+    const rx = Math.min(start.x, cur.x);
+    const ry = Math.min(start.y, cur.y);
+    const rw = Math.abs(cur.x - start.x);
+    const rh = Math.abs(cur.y - start.y);
+    const selRect = { x: rx, y: ry, w: rw, h: rh };
+    _state.update((s) => {
+      s.targetedId = null;
+      s.selectedIds = s.objects
+        .filter((o) => { const bb = getObjectBBox(o); return bb && bboxIntersects(bb, selRect); })
+        .map((o) => o.id);
+    });
+  });
+
+  // NOTE: targeting a group member on double-click is handled in the mousedown
+  // handler above (e.detail >= 2). A dblclick listener can't be used here: every
+  // mousedown re-renders (scene.replaceChildren) and detaches the clicked node
+  // before mouseup, so the browser never fires click/dblclick on it.
 }
 
 /* ===== CLICK-TO-CLICK DRAWING (line L + polyline P — one shared mechanism) ===== */
@@ -372,6 +471,42 @@ function hitTest(objects, p, tol = 0) {
     }
   }
   return null;
+}
+
+/* ----- axis-aligned bounding box of any object (for marquee intersection) ----- */
+function getObjectBBox(o) {
+  if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle") {
+    return { x: o.x, y: o.y, w: o.w, h: o.h };
+  }
+  if (o.type === "line") {
+    return {
+      x: Math.min(o.p1.x, o.p2.x), y: Math.min(o.p1.y, o.p2.y),
+      w: Math.abs(o.p2.x - o.p1.x), h: Math.abs(o.p2.y - o.p1.y),
+    };
+  }
+  if (o.type === "polyline" || o.type === "curve") {
+    const pts = o.points || [];
+    if (!pts.length) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const pt of pts) {
+      if (pt.x < minX) minX = pt.x; if (pt.x > maxX) maxX = pt.x;
+      if (pt.y < minY) minY = pt.y; if (pt.y > maxY) maxY = pt.y;
+    }
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }
+  if (o.type === "text") {
+    const svgEl = _svg.querySelector(`[data-id="${o.id}"]`);
+    if (!svgEl) return null;
+    try { const bb = svgEl.getBBox(); return { x: bb.x, y: bb.y, w: bb.width, h: bb.height }; }
+    catch (_) { return null; }
+  }
+  return null;
+}
+
+/* ----- AABB intersection test (touching counts as intersecting) ----- */
+function bboxIntersects(a, b) {
+  return a.x <= b.x + b.w && a.x + a.w >= b.x &&
+         a.y <= b.y + b.h && a.y + a.h >= b.y;
 }
 
 /* ----- point-in-triangle via consistent sign of edge cross products ----- */

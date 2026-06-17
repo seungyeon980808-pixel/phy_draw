@@ -8,7 +8,7 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom } from "./viewport.js?v=0.7.0";
+import { getZoom } from "./viewport.js?v=0.7.1";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -50,9 +50,15 @@ export function render(state) {
   }
 
   // ----- selection outline (blue dashed bbox; world space so it tracks zoom/pan) -----
-  if (state.selectedId) {
-    const sel = state.objects.find((o) => o.id === state.selectedId);
-    if (sel && sel.type === "line") {
+  const _selIds = state.selectedIds || [];
+  for (const _sid of _selIds) {
+    const sel = state.objects.find((o) => o.id === _sid);
+    if (!sel) continue;
+    const _selColor = (state.targetedId === _sid) ? "#e67700"
+                    : sel.groupId  ? "#2f9e44"
+                    : sel.locked   ? "#e53e3e"
+                    : "var(--c-main, #0969da)";
+    if (sel.type === "line") {
       // A line has no bbox; its selection guide is a dashed copy of the segment.
       const ln = document.createElementNS(SVG_NS, "line");
       ln.setAttribute("x1", sel.p1.x);
@@ -61,27 +67,27 @@ export function render(state) {
       ln.setAttribute("y2", sel.p2.y);
       ln.setAttribute("stroke-width", "0.4"); // world units
       ln.setAttribute("stroke-dasharray", "1.2 1.2");
-      ln.style.stroke = "var(--c-main, #0969da)";
+      ln.style.stroke = _selColor;
       scene.appendChild(ln);
-    } else if (sel && sel.type === "polyline") {
+    } else if (sel.type === "polyline") {
       // A polyline has no fillable bbox; its guide is a dashed copy of the path.
       const pl = document.createElementNS(SVG_NS, "polyline");
       pl.setAttribute("points", sel.points.map((p) => `${p.x},${p.y}`).join(" "));
       pl.setAttribute("fill", "none");
       pl.setAttribute("stroke-width", "0.4"); // world units
       pl.setAttribute("stroke-dasharray", "1.2 1.2");
-      pl.style.stroke = "var(--c-main, #0969da)";
+      pl.style.stroke = _selColor;
       scene.appendChild(pl);
-    } else if (sel && sel.type === "curve") {
+    } else if (sel.type === "curve") {
       // A curve has no fillable bbox; its guide is a dashed copy of the smooth path.
       const cv = document.createElementNS(SVG_NS, "path");
       cv.setAttribute("d", catmullRomPath(sel.points));
       cv.setAttribute("fill", "none");
       cv.setAttribute("stroke-width", "0.4"); // world units
       cv.setAttribute("stroke-dasharray", "1.2 1.2");
-      cv.style.stroke = "var(--c-main, #0969da)";
+      cv.style.stroke = _selColor;
       scene.appendChild(cv);
-    } else if (sel && sel.type === "text") {
+    } else if (sel.type === "text") {
       // getBBox() on the already-rendered <text> element gives the exact visual bounds.
       const textEl = scene.querySelector(`[data-id="${sel.id}"]`);
       if (textEl) {
@@ -95,11 +101,11 @@ export function render(state) {
           box.setAttribute("fill", "none");
           box.setAttribute("stroke-width", "0.4");
           box.setAttribute("stroke-dasharray", "1.2 1.2");
-          box.style.stroke = "var(--c-main, #0969da)";
+          box.style.stroke = _selColor;
           scene.appendChild(box);
         } catch (_) { /* not laid out yet */ }
       }
-    } else if (sel) {
+    } else {
       const box = document.createElementNS(SVG_NS, "rect");
       box.setAttribute("x", sel.x);
       box.setAttribute("y", sel.y);
@@ -108,7 +114,7 @@ export function render(state) {
       box.setAttribute("fill", "none");
       box.setAttribute("stroke-width", "0.4"); // world units
       box.setAttribute("stroke-dasharray", "1.2 1.2");
-      box.style.stroke = "var(--c-main, #0969da)";
+      box.style.stroke = _selColor;
       if (sel.rotation) {
         const cx = sel.x + sel.w / 2, cy = sel.y + sel.h / 2;
         box.setAttribute("transform", `rotate(${sel.rotation} ${cx} ${cy})`);
@@ -118,9 +124,11 @@ export function render(state) {
   }
 
   // ----- selection handles (DESIGN 5-2: fixed 7 CSS px = 7/zoom world units) -----
-  if (state.selectedId) {
-    const handleSel = state.objects.find((o) => o.id === state.selectedId);
-    if (handleSel) renderHandles(handleSel, scene, getZoom(), state.activeTool);
+  if (_selIds.length === 1) {
+    const handleSel = state.objects.find((o) => o.id === _selIds[0]);
+    if (handleSel && !state.targetedId) {
+      renderHandles(handleSel, scene, getZoom(), state.activeTool);
+    }
   }
 
   // ----- live drag preview (ephemeral; not in state.objects yet) -----
@@ -360,7 +368,7 @@ function grayHex(level = 0) {
 
 /* ----- selection handles: 7-CSS-px white squares, zoom-invariant (DESIGN 5-2) ----- */
 function renderHandles(sel, scene, zoom, activeTool) {
-  const half = 6 / zoom;
+  const half = 10 / zoom;
   const sw   = 0.5 / zoom;
 
   const g = document.createElementNS(SVG_NS, "g");
@@ -397,13 +405,31 @@ function renderHandles(sel, scene, zoom, activeTool) {
     const hW  = rotPt(x,  cy, cx, cy, deg);
 
     if (activeTool === "rotate") {
+      const rotOuter = 28 / zoom;
       // edge handles: normal white squares
       makeHandle(hN.x,  hN.y,  "n");
       makeHandle(hE.x,  hE.y,  "e");
       makeHandle(hS.x,  hS.y,  "s");
       makeHandle(hW.x,  hW.y,  "w");
-      // corner handles: blue circles indicating rotation mode
-      for (const [label, pt] of [["nw", hNW], ["ne", hNE], ["se", hSE], ["sw", hSW]]) {
+      // corner handles: blue circles + 90° arc indicators
+      const makeArc = (px, py, startDeg, endDeg) => {
+        const R = rotOuter;
+        const s = startDeg * Math.PI / 180;
+        const e = endDeg   * Math.PI / 180;
+        const x1 = px + R * Math.cos(s), y1 = py + R * Math.sin(s);
+        const x2 = px + R * Math.cos(e), y2 = py + R * Math.sin(e);
+        const arc = document.createElementNS(SVG_NS, "path");
+        arc.setAttribute("d", `M ${x1} ${y1} A ${R} ${R} 0 0 1 ${x2} ${y2}`);
+        arc.setAttribute("fill", "none");
+        arc.setAttribute("stroke", "#0969da");
+        arc.setAttribute("stroke-width", 1.5 / zoom);
+        arc.setAttribute("pointer-events", "none");
+        g.appendChild(arc);
+      };
+      // base angles per corner (unrotated): arc faces outward from shape
+      for (const [label, pt, base] of [
+        ["nw", hNW, 180], ["ne", hNE, 270], ["se", hSE, 0], ["sw", hSW, 90]
+      ]) {
         const c = document.createElementNS(SVG_NS, "circle");
         c.setAttribute("cx", pt.x);
         c.setAttribute("cy", pt.y);
@@ -413,6 +439,7 @@ function renderHandles(sel, scene, zoom, activeTool) {
         c.dataset.handle = label;
         c.dataset.id = sel.id;
         g.appendChild(c);
+        makeArc(pt.x, pt.y, base + deg, base + deg + 90);
       }
     } else {
       // normal resize mode: all 8 handles as white squares

@@ -8,12 +8,12 @@
 // Snapshot is captured at drag start; committed only if the pointer crossed a
 // distance threshold — so a plain click never creates a useless undo entry.
 //
-// Coordination with tools.js: tools.js updates selectedId on mousedown (bubble
-// phase). We use a capture-phase listener to read the PRE-click selectedId, so
+// Coordination with tools.js: tools.js updates selectedIds on mousedown (bubble
+// phase). We use a capture-phase listener to read the PRE-click selectedIds, so
 // we can distinguish "click on already-selected → move allowed" from "click
 // selects a new object → just select, no move this press."
 
-import { screenToWorld } from "./viewport.js?v=0.7.0";
+import { screenToWorld } from "./viewport.js?v=0.7.1";
 
 /* ----- rotate point (px,py) about center (cx,cy) by deg degrees ----- */
 function rotPt(px, py, cx, cy, deg) {
@@ -43,6 +43,17 @@ function cloneObjects(objects) {
   return JSON.parse(JSON.stringify(objects));
 }
 
+function rebuildGroups(s) {
+  const map = {};
+  s.objects.forEach(o => {
+    if (o.groupId) {
+      if (!map[o.groupId]) map[o.groupId] = [];
+      map[o.groupId].push(o.id);
+    }
+  });
+  s.groups = Object.entries(map).map(([id, memberIds]) => ({ id, memberIds }));
+}
+
 function undo(state) {
   if (state.get().undoStack.length === 0) return;
   state.update((s) => {
@@ -50,9 +61,9 @@ function undo(state) {
     const prev = s.undoStack.pop();
     s.redoStack.push(current);
     s.objects = prev;
-    if (s.selectedId && !s.objects.find((o) => o.id === s.selectedId)) {
-      s.selectedId = null;
-    }
+    s.targetedId = null;
+    s.selectedIds = (s.selectedIds || []).filter(id => s.objects.find((o) => o.id === id));
+    rebuildGroups(s);
   });
 }
 
@@ -63,9 +74,9 @@ function redo(state) {
     const next = s.redoStack.pop();
     s.undoStack.push(current);
     s.objects = next;
-    if (s.selectedId && !s.objects.find((o) => o.id === s.selectedId)) {
-      s.selectedId = null;
-    }
+    s.targetedId = null;
+    s.selectedIds = (s.selectedIds || []).filter(id => s.objects.find((o) => o.id === id));
+    rebuildGroups(s);
   });
 }
 
@@ -74,12 +85,12 @@ function redo(state) {
 const MOVE_THRESHOLD = 0.01; // world units; below this = plain click, not a drag
 
 let _moving = false;
-let _moveObjId = null;
+let _moveObjIds = [];
 let _moveStartWorld = null; // world coords of the mousedown that started the drag
-let _moveOrigObj = null;    // deep clone of the object's geometry at drag start
+let _moveOrigObjs = {};     // map from id → deep clone of the object's geometry at drag start
 let _pendingSnapshot = null; // full objects clone for undo; committed only if moved
 let _didMove = false;        // true once the threshold is crossed
-let _prevSelectedId = null;  // selectedId captured BEFORE tools.js's handler fires
+let _prevSelectedIds = [];   // selectedIds captured BEFORE tools.js's handler fires
 let _spaceHeld = false;
 
 /* handle-drag state (resize branch A / endpoint branch B) */
@@ -152,12 +163,14 @@ function applyHandleDelta(obj, orig, handle, dx, dy, shiftKey) {
     case "sw": h += dy; x += dx; w -= dx;           break;
   }
 
-  // Shift = keep original aspect ratio (DESIGN 4-1)
+  // Shift = keep original aspect ratio (DESIGN 4-1). Grouped objects ALWAYS keep
+  // ratio, Shift-independent and forced (DESIGN 6-2) — breaking a group's ratio
+  // would distort the relative layout the grouping is meant to preserve.
   // Reference axis is fixed by HANDLE TYPE (not by live dx-vs-dy), so it never
   // flips mid-drag on a diagonal where dx ≈ dy — which used to cause size jumps.
   //   vertical edges (n/s) → height drives:  w = h * ratio
   //   everything else (e/w + all corners)   → width drives:  h = w / ratio
-  if (shiftKey && ratio > 0 && isFinite(ratio)) {
+  if ((shiftKey || obj.groupId) && ratio > 0 && isFinite(ratio)) {
     if (handle === "n" || handle === "s") {
       // height is the driver → snap w to follow h
       w = h * ratio;
@@ -217,52 +230,57 @@ export function initTransform(svg, state) {
     if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
 
     const s = state.get();
-    const selectedId = s.selectedId;
+    const selectedIds = s.selectedIds || [];
 
-    // Ctrl+C — copy selected object into module-level clipboard
+    // Ctrl+C — copy selected objects into module-level clipboard
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c" && !e.shiftKey) {
-      if (!selectedId) return;
-      const obj = s.objects.find((o) => o.id === selectedId);
-      if (obj) _clipboard = JSON.parse(JSON.stringify(obj));
+      if (!selectedIds.length) return;
+      _clipboard = selectedIds
+        .map(id => s.objects.find(o => o.id === id))
+        .filter(Boolean)
+        .map(obj => JSON.parse(JSON.stringify(obj)));
       return;
     }
 
     // Ctrl+V — paste clipboard at original position + (1, 1) world unit offset
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v" && !e.shiftKey) {
-      if (!_clipboard) return;
+      if (!_clipboard || !_clipboard.length) return;
       e.preventDefault();
       const snap = JSON.parse(JSON.stringify(s.objects));
-      const newObj = JSON.parse(JSON.stringify(_clipboard));
-      newObj.id = String(Date.now());
-      if (newObj.type === "rect" || newObj.type === "ellipse" ||
-          newObj.type === "triangle" || newObj.type === "text") {
-        newObj.x += 1;
-        newObj.y += 1;
-      } else if (newObj.type === "line") {
-        newObj.p1 = { x: newObj.p1.x + 1, y: newObj.p1.y + 1 };
-        newObj.p2 = { x: newObj.p2.x + 1, y: newObj.p2.y + 1 };
-      } else if (newObj.type === "polyline" || newObj.type === "curve") {
-        newObj.points = newObj.points.map((p) => ({ x: p.x + 1, y: p.y + 1 }));
-      }
+      const newObjs = _clipboard.map((src, i) => {
+        const newObj = JSON.parse(JSON.stringify(src));
+        newObj.id = String(Date.now() + i);
+        if (newObj.type === "rect" || newObj.type === "ellipse" ||
+            newObj.type === "triangle" || newObj.type === "text") {
+          newObj.x += 1;
+          newObj.y += 1;
+        } else if (newObj.type === "line") {
+          newObj.p1 = { x: newObj.p1.x + 1, y: newObj.p1.y + 1 };
+          newObj.p2 = { x: newObj.p2.x + 1, y: newObj.p2.y + 1 };
+        } else if (newObj.type === "polyline" || newObj.type === "curve") {
+          newObj.points = newObj.points.map((p) => ({ x: p.x + 1, y: p.y + 1 }));
+        }
+        return newObj;
+      });
       state.update((s2) => {
         s2.undoStack.push(snap);
         s2.redoStack = [];
-        s2.objects.push(newObj);
-        s2.selectedId = newObj.id;
+        newObjs.forEach(o => s2.objects.push(o));
+        s2.selectedIds = newObjs.map(o => o.id);
       });
       return;
     }
 
-    // Delete — remove selected object with undo snapshot
+    // Delete — remove all selected objects with undo snapshot
     if (e.key === "Delete") {
-      if (!selectedId) return;
+      if (!selectedIds.length) return;
       e.preventDefault();
       const snap = JSON.parse(JSON.stringify(s.objects));
       state.update((s2) => {
         s2.undoStack.push(snap);
         s2.redoStack = [];
-        s2.objects = s2.objects.filter((o) => o.id !== selectedId);
-        s2.selectedId = null;
+        s2.objects = s2.objects.filter((o) => !selectedIds.includes(o.id));
+        s2.selectedIds = [];
       });
       return;
     }
@@ -270,19 +288,21 @@ export function initTransform(svg, state) {
     // Arrow nudge (0.5 world units; Ctrl = 5 units; snapshot pushed on first keydown only)
     if (e.key === "ArrowUp" || e.key === "ArrowDown" ||
         e.key === "ArrowLeft" || e.key === "ArrowRight") {
-      if (!selectedId) return;
+      if (!selectedIds.length) return;
       e.preventDefault();
       if (s.activeTool === "rotate") {
-        const obj = s.objects.find((o) => o.id === selectedId);
-        if (!obj || !["rect", "ellipse", "triangle"].includes(obj.type)) return;
         const snap = JSON.parse(JSON.stringify(s.objects));
         const flipAxis = (e.key === "ArrowLeft" || e.key === "ArrowRight") ? "flipX" : "flipY";
         state.update((s2) => {
-          const o = s2.objects.find((o) => o.id === selectedId);
-          if (!o) return;
-          s2.undoStack.push(snap);
-          s2.redoStack = [];
-          o[flipAxis] = !(o[flipAxis] ?? false);
+          const ids = s2.selectedIds || [];
+          let changed = false;
+          ids.forEach(id => {
+            const o = s2.objects.find((o) => o.id === id);
+            if (!o || !["rect", "ellipse", "triangle"].includes(o.type)) return;
+            o[flipAxis] = !(o[flipAxis] ?? false);
+            changed = true;
+          });
+          if (changed) { s2.undoStack.push(snap); s2.redoStack = []; }
         });
         return;
       }
@@ -293,85 +313,176 @@ export function initTransform(svg, state) {
       if (isFirst) _arrowKeysHeld.add(e.key);
       const snap = isFirst ? JSON.parse(JSON.stringify(s.objects)) : null;
       state.update((s2) => {
-        const obj = s2.objects.find((o) => o.id === selectedId);
-        if (!obj) return;
+        const ids = s2.selectedIds || [];
         if (snap) { s2.undoStack.push(snap); s2.redoStack = []; }
-        const orig = JSON.parse(JSON.stringify(obj));
-        applyDelta(obj, orig, dx, dy);
+        ids.forEach(id => {
+          const obj = s2.objects.find((o) => o.id === id);
+          if (!obj) return;
+          const orig = JSON.parse(JSON.stringify(obj));
+          applyDelta(obj, orig, dx, dy);
+        });
       });
       return;
     }
 
-    // PageUp — bring selected object forward one step in z-order
+    // PageUp — bring selected objects forward one step in z-order
     if (e.key === "PageUp") {
-      if (!selectedId) return;
+      if (!selectedIds.length) return;
       e.preventDefault();
       if (s.activeTool === "rotate") {
-        const obj = s.objects.find((o) => o.id === selectedId);
-        if (!obj || !["rect", "ellipse", "triangle"].includes(obj.type)) return;
         const snap = JSON.parse(JSON.stringify(s.objects));
         state.update((s2) => {
-          const o = s2.objects.find((o) => o.id === selectedId);
-          if (!o) return;
-          s2.undoStack.push(snap);
-          s2.redoStack = [];
-          o.rotation = (o.rotation ?? 0) + 5;
+          const ids = s2.selectedIds || [];
+          let changed = false;
+          ids.forEach(id => {
+            const o = s2.objects.find((o) => o.id === id);
+            if (!o || !["rect", "ellipse", "triangle"].includes(o.type)) return;
+            o.rotation = (o.rotation ?? 0) + 5;
+            changed = true;
+          });
+          if (changed) { s2.undoStack.push(snap); s2.redoStack = []; }
         });
         return;
       }
       const snap = JSON.parse(JSON.stringify(s.objects));
       state.update((s2) => {
-        const idx = s2.objects.findIndex((o) => o.id === selectedId);
-        if (idx < 0 || idx === s2.objects.length - 1) return;
-        s2.undoStack.push(snap);
-        s2.redoStack = [];
-        [s2.objects[idx], s2.objects[idx + 1]] = [s2.objects[idx + 1], s2.objects[idx]];
+        const ids = s2.selectedIds || [];
+        // Process from highest index downward to avoid index collision
+        const indices = ids
+          .map(id => s2.objects.findIndex(o => o.id === id))
+          .filter(idx => idx >= 0)
+          .sort((a, b) => b - a);
+        let moved = false;
+        indices.forEach(idx => {
+          if (idx === s2.objects.length - 1) return;
+          [s2.objects[idx], s2.objects[idx + 1]] = [s2.objects[idx + 1], s2.objects[idx]];
+          moved = true;
+        });
+        if (moved) { s2.undoStack.push(snap); s2.redoStack = []; }
       });
       return;
     }
 
-    // PageDown — send selected object backward one step in z-order
+    // PageDown — send selected objects backward one step in z-order
     if (e.key === "PageDown") {
-      if (!selectedId) return;
+      if (!selectedIds.length) return;
       e.preventDefault();
       if (s.activeTool === "rotate") {
-        const obj = s.objects.find((o) => o.id === selectedId);
-        if (!obj || !["rect", "ellipse", "triangle"].includes(obj.type)) return;
         const snap = JSON.parse(JSON.stringify(s.objects));
         state.update((s2) => {
-          const o = s2.objects.find((o) => o.id === selectedId);
-          if (!o) return;
-          s2.undoStack.push(snap);
-          s2.redoStack = [];
-          o.rotation = (o.rotation ?? 0) - 5;
+          const ids = s2.selectedIds || [];
+          let changed = false;
+          ids.forEach(id => {
+            const o = s2.objects.find((o) => o.id === id);
+            if (!o || !["rect", "ellipse", "triangle"].includes(o.type)) return;
+            o.rotation = (o.rotation ?? 0) - 5;
+            changed = true;
+          });
+          if (changed) { s2.undoStack.push(snap); s2.redoStack = []; }
         });
         return;
       }
       const snap = JSON.parse(JSON.stringify(s.objects));
       state.update((s2) => {
-        const idx = s2.objects.findIndex((o) => o.id === selectedId);
-        if (idx <= 0) return;
-        s2.undoStack.push(snap);
-        s2.redoStack = [];
-        [s2.objects[idx], s2.objects[idx - 1]] = [s2.objects[idx - 1], s2.objects[idx]];
+        const ids = s2.selectedIds || [];
+        // Process from lowest index upward to avoid index collision
+        const indices = ids
+          .map(id => s2.objects.findIndex(o => o.id === id))
+          .filter(idx => idx >= 0)
+          .sort((a, b) => a - b);
+        let moved = false;
+        indices.forEach(idx => {
+          if (idx <= 0) return;
+          [s2.objects[idx], s2.objects[idx - 1]] = [s2.objects[idx - 1], s2.objects[idx]];
+          moved = true;
+        });
+        if (moved) { s2.undoStack.push(snap); s2.redoStack = []; }
       });
       return;
     }
 
-    // F — toggle flipY on selected triangle
+    // F — toggle flipY on selected triangle(s)
     if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === "f") {
-      if (!selectedId) return;
-      const obj = s.objects.find((o) => o.id === selectedId);
-      if (!obj || obj.type !== "triangle") return;
+      if (!selectedIds.length) return;
+      const triangleIds = selectedIds.filter(id => {
+        const o = s.objects.find(ob => ob.id === id);
+        return o && o.type === "triangle";
+      });
+      if (!triangleIds.length) return;
       e.preventDefault();
       const snap = JSON.parse(JSON.stringify(s.objects));
       state.update((s2) => {
-        const o = s2.objects.find((o) => o.id === selectedId);
-        if (!o || o.type !== "triangle") return;
+        triangleIds.forEach(id => {
+          const o = s2.objects.find((o) => o.id === id);
+          if (!o || o.type !== "triangle") return;
+          o.flipY = !(o.flipY ?? false);
+        });
         s2.undoStack.push(snap);
         s2.redoStack = [];
-        o.flipY = !(o.flipY ?? false);
       });
+    }
+
+    // K — toggle locked on all selected shape-based objects (V tool only)
+    if (!e.ctrlKey && !e.metaKey && e.key.toLowerCase() === "k") {
+      if (!selectedIds.length || s.activeTool !== "V") return;
+      e.preventDefault();
+      const snap = JSON.parse(JSON.stringify(s.objects));
+      state.update((s2) => {
+        const ids = s2.selectedIds || [];
+        ids.forEach(id => {
+          const o = s2.objects.find((o) => o.id === id);
+          if (!o || !["rect", "ellipse", "triangle"].includes(o.type)) return;
+          o.locked = !(o.locked ?? false);
+        });
+        s2.undoStack.push(snap);
+        s2.redoStack = [];
+      });
+    }
+
+    // G — group selected objects (V tool, ≥2 selected)
+    if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === "g") {
+      if (s.activeTool !== "V" || selectedIds.length < 2) return;
+      e.preventDefault();
+      const snap = JSON.parse(JSON.stringify(s.objects));
+      state.update((s2) => {
+        const groupId = Date.now().toString();
+        const memberIds = [...(s2.selectedIds || [])];
+        memberIds.forEach(id => {
+          const o = s2.objects.find((o) => o.id === id);
+          if (o) o.groupId = groupId;
+        });
+        s2.groups.push({ id: groupId, memberIds });
+        s2.undoStack.push(snap);
+        s2.redoStack = [];
+      });
+      return;
+    }
+
+    // Shift+G — ungroup (V tool, all selected objects share the same groupId)
+    if (!e.ctrlKey && !e.metaKey && e.shiftKey && e.key.toLowerCase() === "g") {
+      if (s.activeTool !== "V" || !selectedIds.length) return;
+      const _refId = s.targetedId || selectedIds[0];
+      const _refObj = s.objects.find((o) => o.id === _refId);
+      if (!_refObj || !_refObj.groupId) return;
+      const _gid = _refObj.groupId;
+      if (!s.targetedId && !selectedIds.every(id => {
+        const o = s.objects.find((o) => o.id === id);
+        return o && o.groupId === _gid;
+      })) return;
+      e.preventDefault();
+      const snap = JSON.parse(JSON.stringify(s.objects));
+      state.update((s2) => {
+        const grp = s2.groups.find((g) => g.id === _gid);
+        if (grp) grp.memberIds.forEach(id => {
+          const o = s2.objects.find((o) => o.id === id);
+          if (o) delete o.groupId;
+        });
+        s2.groups = s2.groups.filter((g) => g.id !== _gid);
+        s2.targetedId = null;
+        s2.undoStack.push(snap);
+        s2.redoStack = [];
+      });
+      return;
     }
   });
 
@@ -383,30 +494,39 @@ export function initTransform(svg, state) {
     }
   });
 
-  /* -- Capture phase: save selectedId BEFORE tools.js's bubble handler fires --
+  /* -- Capture phase: save selectedIds BEFORE tools.js's bubble handler fires --
    * tools.js registers its mousedown on the bubble phase. The capture phase fires
-   * first, giving us the pre-click selectedId. We use it below to decide whether
-   * the click is on the already-selected object (move allowed) or a new one (just
+   * first, giving us the pre-click selectedIds. We use it below to decide whether
+   * the click is on an already-selected object (move allowed) or a new one (just
    * select this press; move can start on the NEXT press). */
   svg.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
-    _prevSelectedId = state.get().selectedId;
+    _prevSelectedIds = state.get().selectedIds || [];
   }, true); // capture = true
 
-  /* -- Bubble phase: start move if click landed on the ALREADY-selected object -- */
+  /* -- Bubble phase: start move if click landed on an ALREADY-selected object -- */
   svg.addEventListener("mousedown", (e) => {
     if (e.button !== 0) return;
     if (_spaceHeld) return;
+    // Second press of a double-click targets a group member (handled in tools.js).
+    // Don't arm a move gesture on it.
+    if (e.detail >= 2) return;
     const activeTool = state.get().activeTool;
     if (activeTool !== "V" && activeTool !== "rotate") return;
 
-    // Handle drag: if the click target is a selection handle, start resize or rotation drag.
+    // Targeted state: block all transforms; only Shift+G / inspector "개체 풀기" allowed
+    if (state.get().targetedId) return;
+
+    // Handle drag: only active when exactly one object is selected
     const hLabel = e.target.dataset && e.target.dataset.handle;
     const hObjId = e.target.dataset && e.target.dataset.id;
-    if (hLabel && hObjId && hObjId === state.get().selectedId) {
-      const s = state.get();
-      const obj = s.objects.find((o) => o.id === s.selectedId);
+    const s0 = state.get();
+    const selectedIds0 = s0.selectedIds || [];
+    if (hLabel && hObjId && selectedIds0.length === 1 && selectedIds0.includes(hObjId)) {
+      const s = s0;
+      const obj = s.objects.find((o) => o.id === selectedIds0[0]);
       if (obj) {
+        if (obj.locked) return; // locked objects block handle and rotation drag
         const isCorner = ["nw", "ne", "se", "sw"].includes(hLabel);
         if (activeTool === "rotate" && isCorner) {
           _rotating       = true;
@@ -433,18 +553,42 @@ export function initTransform(svg, state) {
     if (activeTool !== "V") return; // rotate tool has no body-move behavior
 
     const s = state.get();
-    // tools.js already ran and updated s.selectedId. If it changed, the user just
-    // selected a new object — don't begin a move on this press.
-    if (!_prevSelectedId || s.selectedId !== _prevSelectedId) return;
+    const selectedIds = s.selectedIds || [];
 
-    const obj = s.objects.find((o) => o.id === s.selectedId);
+    // Find the clicked object by traversing up from the event target
+    let el = e.target;
+    let clickedId = null;
+    while (el && el !== svg) {
+      if (el.dataset && el.dataset.id) { clickedId = el.dataset.id; break; }
+      el = el.parentElement;
+    }
+
+    // Allow move only if the clicked object is in the current selection
+    if (!clickedId || !selectedIds.includes(clickedId)) return;
+
+    const obj = s.objects.find((o) => o.id === clickedId);
     if (!obj) return;
+    if (obj.locked) return; // locked objects block body-move
 
     const vb = s.viewBox;
     _moveStartWorld = screenToWorld(svg, vb, e.clientX, e.clientY);
     _moving = true;
-    _moveObjId = s.selectedId;
-    _moveOrigObj = JSON.parse(JSON.stringify(obj));
+    // Expand to all group members when selected objects share a group
+    const _firstMoveObj = s.objects.find((o) => o.id === selectedIds[0]);
+    const _sharedGid = _firstMoveObj?.groupId &&
+      selectedIds.every(id => s.objects.find((o) => o.id === id)?.groupId === _firstMoveObj.groupId)
+      ? _firstMoveObj.groupId : null;
+    let _moveIds = [...selectedIds];
+    if (_sharedGid) {
+      const _mgrp = s.groups.find((g) => g.id === _sharedGid);
+      if (_mgrp) _moveIds = [..._mgrp.memberIds];
+    }
+    _moveObjIds = _moveIds;
+    _moveOrigObjs = {};
+    _moveIds.forEach(id => {
+      const o = s.objects.find((o) => o.id === id);
+      if (o) _moveOrigObjs[id] = JSON.parse(JSON.stringify(o));
+    });
     _pendingSnapshot = JSON.parse(JSON.stringify(s.objects)); // pre-move state for undo
     _didMove = false;
 
@@ -504,9 +648,12 @@ export function initTransform(svg, state) {
     const dy = cur.y - _moveStartWorld.y;
 
     state.update((s) => {
-      const obj = s.objects.find((o) => o.id === _moveObjId);
-      if (!obj) return;
-      applyDelta(obj, _moveOrigObj, dx, dy);
+      _moveObjIds.forEach(id => {
+        const obj = s.objects.find((o) => o.id === id);
+        const orig = _moveOrigObjs[id];
+        if (!obj || !orig) return;
+        applyDelta(obj, orig, dx, dy);
+      });
     });
 
     if (!_didMove && Math.hypot(dx, dy) > MOVE_THRESHOLD) {
@@ -560,8 +707,8 @@ export function initTransform(svg, state) {
     }
 
     _moveStartWorld = null;
-    _moveObjId = null;
-    _moveOrigObj = null;
+    _moveObjIds = [];
+    _moveOrigObjs = {};
     _pendingSnapshot = null;
     _didMove = false;
   });

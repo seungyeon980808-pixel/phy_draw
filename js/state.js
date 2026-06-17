@@ -26,11 +26,17 @@ export const state = createStore({
   // It is NOT a committed object — on mouse-up it becomes one in `objects`.
   draft: null,
 
-  // selectedId: id of the currently selected object (V tool), or null.
-  selectedId: null,
+  // selectedIds: array of selected object ids; empty = nothing selected.
+  selectedIds: [],
 
   // undoStack / redoStack: each entry is a deep-cloned objects array snapshot.
   // Populated by transform.js; nothing else should touch these directly.
   undoStack: [],
   redoStack: [],
+
+  // groups: array of { id, memberIds: [] }. Objects reference their group via obj.groupId.
+  groups: [],
+
+  // targetedId: id of the single group member targeted by double-click (주황색 지목 상태). null when idle.
+  targetedId: null,
 });

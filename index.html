@@ -14,6 +14,7 @@
   />
 
   <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/inspector.css" />
 </head>
 <body>
   <!-- ===== APP SHELL (DESIGN §7 three-panel skeleton) ===== -->
@@ -75,20 +76,25 @@
       </div>
     </main>
 
-    <!-- ----- RIGHT: inspector (placeholder in 1A) ----- -->
+    <!-- ----- RIGHT: inspector ----- -->
     <aside class="panel panel-right">
       <div class="panel-title">인스펙터</div>
-      <p class="placeholder">선택된 오브젝트 없음</p>
+      <div id="inspector">
+        <div id="inspector-empty">선택된 오브젝트 없음</div>
+        <div id="inspector-content" style="display:none">
+          <!-- sections injected by inspector.js -->
+        </div>
+      </div>
     </aside>
   </div>
 
   <!-- ===== FOOTER: version + date ===== -->
   <footer class="app-footer">
-    PhysicsExamDrawer Web · <strong>v0.7.0</strong> · 2026-06-17
+    PhysicsExamDrawer Web · <strong>v0.7.1</strong> · 2026-06-17
   </footer>
 
   <!-- ===== MODULES (load order matters: store → state → viewport → render → main) ===== -->
   <!-- ?v= busts the ES-module cache so edits actually load (DESIGN: cache-bust) -->
-  <script type="module" src="js/main.js?v=0.7.0"></script>
+  <script type="module" src="js/main.js?v=0.7.1"></script>
 </body>
 </html>
