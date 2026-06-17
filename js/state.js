@@ -45,8 +45,8 @@ export const state = createStore({
 
   // layers: ordered list of layers; each shape will reference its layer via obj.layerId.
   layers: [
-    { id: 1, name: "레이어 1", visible: true, locked: false },
-    { id: 2, name: "레이어 2", visible: true, locked: false },
-    { id: 3, name: "레이어 3", visible: true, locked: false },
+    { id: 1, name: "레이어 1", visible: true },
+    { id: 2, name: "레이어 2", visible: true },
+    { id: 3, name: "레이어 3", visible: true },
   ],
 });

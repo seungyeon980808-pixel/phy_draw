@@ -11,7 +11,7 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld } from "./viewport.js?v=0.9.1";
+import { screenToWorld } from "./viewport.js?v=0.10.0";
 
 // Default look until the inspector exists (DESIGN §3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.5; // world units (≈0.5mm on the 100mm artboard)
@@ -128,7 +128,7 @@ function setupDrawing() {
         const _hlObj = s.objects.find((o) => o.id === hitId);
         const _hlLayerId = _hlObj ? (_hlObj.layerId ?? 1) : 1;
         const _hlLayer = (s.layers || []).find(l => l.id === _hlLayerId);
-        if (!_hlLayer || _hlLayer.visible === false || _hlLayer.locked || _hlLayerId !== s.activeLayerId) {
+        if (!_hlLayer || _hlLayer.visible === false || _hlLayerId !== s.activeLayerId) {
           hitId = null;
         }
       }
@@ -264,7 +264,7 @@ function setupDrawing() {
         .filter((o) => {
           const _mLayerId = o.layerId ?? 1;
           const _mLayer = (s.layers || []).find(l => l.id === _mLayerId);
-          if (!_mLayer || _mLayer.visible === false || _mLayer.locked || _mLayerId !== s.activeLayerId) return false;
+          if (!_mLayer || _mLayer.visible === false || _mLayerId !== s.activeLayerId) return false;
           const bb = getObjectBBox(o);
           return bb && bboxIntersects(bb, selRect);
         })

@@ -8,7 +8,7 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom } from "./viewport.js?v=0.9.1";
+import { getZoom } from "./viewport.js?v=0.10.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -52,7 +52,7 @@ export function render(state) {
     if (!el) continue;
     const _isActive = _layerId === state.activeLayerId;
     if (!_isActive) el.setAttribute("opacity", "0.5");
-    if (_layer && (_layer.locked || !_isActive)) el.setAttribute("pointer-events", "none");
+    if (!_isActive) el.setAttribute("pointer-events", "none");
     scene.appendChild(el);
   }
 

@@ -625,6 +625,20 @@ export function initInspector(state) {
   function renderLayerPanel(s) {
     if (layerBody.contains(document.activeElement)) return; // don't clobber inline name edit
     layerBody.innerHTML = "";
+
+    // Caption: top row is front-most. Matches the 3 → 2 → 1 list order below.
+    const caption = document.createElement("div");
+    caption.textContent = "위 행이 앞(전면)에 그려집니다.";
+    caption.style.cssText =
+      "font-size:11px;color:#8a8a8a;padding:0 8px 4px;user-select:none;";
+    layerBody.appendChild(caption);
+
+    // Bordered box holding the layer rows.
+    const listBox = document.createElement("div");
+    listBox.style.cssText =
+      "border:1px solid #d0d7de;border-radius:4px;overflow:hidden;";
+    layerBody.appendChild(listBox);
+
     const layers = [...(s.layers || [])].reverse(); // layer 3 on top → layer 1 on bottom
     for (const layer of layers) {
       const isActive = layer.id === s.activeLayerId;
@@ -632,49 +646,23 @@ export function initInspector(state) {
 
       const row = document.createElement("div");
       row.style.cssText =
-        "display:flex;align-items:center;gap:4px;padding:4px 8px;cursor:pointer;" +
+        "display:flex;align-items:center;gap:6px;padding:4px 8px;cursor:pointer;" +
         "border-left:3px solid " + (isActive ? "#0969da" : "transparent") + ";" +
         "background:" + (isActive ? "rgba(9,105,218,0.12)" : "transparent") + ";";
 
-      // ----- Visibility / Lock toggles (grayscale text-label buttons) -----
-      // Slim outlined buttons, same size. Pressed (active) = faint shade + inset
-      // feel; unpressed = flat outline. Grayscale only — no color.
-      const TOGGLE_BASE =
-        "width:42px;flex-shrink:0;font-size:10px;line-height:1;padding:3px 0;" +
-        "text-align:center;cursor:pointer;border-radius:3px;font-family:inherit;" +
-        "letter-spacing:0.03em;";
-      const TOGGLE_OFF =
-        "border:1px solid #c4c4c4;background:#ffffff;color:#8a8a8a;box-shadow:none;";
-      const TOGGLE_ON =
-        "border:1px solid #9a9a9a;background:#dcdcdc;color:#2a2a2a;" +
-        "box-shadow:inset 0 1px 2px rgba(0,0,0,0.22);";
-      function styleToggle(btn, on) {
-        btn.style.cssText = TOGGLE_BASE + (on ? TOGGLE_ON : TOGGLE_OFF);
-      }
-
-      // Visibility toggle — visible = pressed (active) look
-      const eyeBtn = document.createElement("button");
-      eyeBtn.textContent = "show";
-      eyeBtn.title = isHidden ? "표시" : "숨기기";
-      styleToggle(eyeBtn, !isHidden);
-      eyeBtn.addEventListener("click", (e) => {
+      // Visibility checkbox — checked = visible. stopPropagation keeps the
+      // checkbox click from also triggering the row's "set active" handler.
+      const visCb = document.createElement("input");
+      visCb.type = "checkbox";
+      visCb.checked = !isHidden;
+      visCb.title = isHidden ? "표시" : "숨기기";
+      visCb.style.cssText = "flex-shrink:0;cursor:pointer;margin:0;";
+      visCb.addEventListener("click", (e) => { e.stopPropagation(); });
+      visCb.addEventListener("change", (e) => {
         e.stopPropagation();
         state.update((s2) => {
           const l = s2.layers.find(l => l.id === layer.id);
-          if (l) l.visible = l.visible === false ? true : false;
-        });
-      });
-
-      // Lock toggle — locked = pressed (active) look
-      const lockBtn = document.createElement("button");
-      lockBtn.textContent = "lock";
-      lockBtn.title = layer.locked ? "잠금 해제" : "잠금";
-      styleToggle(lockBtn, !!layer.locked);
-      lockBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        state.update((s2) => {
-          const l = s2.layers.find(l => l.id === layer.id);
-          if (l) l.locked = !l.locked;
+          if (l) l.visible = !visCb.checked ? false : true;
         });
       });
 
@@ -722,10 +710,9 @@ export function initInspector(state) {
         });
       });
 
-      row.appendChild(eyeBtn);
-      row.appendChild(lockBtn);
+      row.appendChild(visCb);
       row.appendChild(nameSpan);
-      layerBody.appendChild(row);
+      listBox.appendChild(row);
     }
   }
 
