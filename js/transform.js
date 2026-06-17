@@ -13,7 +13,7 @@
 // we can distinguish "click on already-selected → move allowed" from "click
 // selects a new object → just select, no move this press."
 
-import { screenToWorld } from "./viewport.js?v=0.7.1";
+import { screenToWorld } from "./viewport.js?v=0.8.0";
 
 /* ----- rotate point (px,py) about center (cx,cy) by deg degrees ----- */
 function rotPt(px, py, cx, cy, deg) {

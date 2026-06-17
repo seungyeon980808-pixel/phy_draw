@@ -8,7 +8,7 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom } from "./viewport.js?v=0.7.1";
+import { getZoom } from "./viewport.js?v=0.8.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -45,8 +45,15 @@ export function render(state) {
 
   // ----- committed objects (z-order = array order, DESIGN 1-1) -----
   for (const obj of state.objects) {
+    const _layerId = obj.layerId ?? 1;
+    const _layer = (state.layers || []).find(l => l.id === _layerId);
+    if (_layer && _layer.visible === false) continue;
     const el = renderObject(obj);
-    if (el) scene.appendChild(el);
+    if (!el) continue;
+    const _isActive = _layerId === state.activeLayerId;
+    if (!_isActive) el.setAttribute("opacity", "0.5");
+    if (_layer && (_layer.locked || !_isActive)) el.setAttribute("pointer-events", "none");
+    scene.appendChild(el);
   }
 
   // ----- selection outline (blue dashed bbox; world space so it tracks zoom/pan) -----
@@ -77,6 +84,8 @@ export function render(state) {
     if (_allSameGroup) continue; // combined rect already drawn above
     const sel = state.objects.find((o) => o.id === _sid);
     if (!sel) continue;
+    const _selLayer = (state.layers || []).find(l => l.id === (sel.layerId ?? 1));
+    if (_selLayer && _selLayer.visible === false) continue;
     const _selColor = (state.targetedId === _sid) ? "#e67700"
                     : sel.groupId  ? "#2f9e44"
                     : sel.locked   ? "#e53e3e"
@@ -330,6 +339,40 @@ function makeArrowHead(tipX, tipY, dirX, dirY, strokeWidth, color) {
   return poly;
 }
 
+/* ----- dashes (line/polyline/curve): SVG stroke-dasharray in world units (mm) ----- */
+// Solid = dashLength 0 (or gap 0) → no dasharray attribute set at all (DESIGN: presets).
+function applyDash(el, obj) {
+  const dl = obj.dashLength ?? 0;
+  const dg = obj.dashGap ?? 0;
+  if (dl > 0 && dg > 0) el.setAttribute("stroke-dasharray", `${dl} ${dg}`);
+}
+
+/* ----- point + travel direction at 50% of a polyline's total path length ----- */
+// Used by polyline "center" arrowhead: visually natural midpoint of the whole path.
+function polylineMidpoint(pts) {
+  if (!pts || pts.length < 2) return null;
+  const segLens = [];
+  let total = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const L = Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+    segLens.push(L);
+    total += L;
+  }
+  if (total === 0) return null;
+  const target = total / 2;
+  let acc = 0;
+  for (let i = 0; i < segLens.length; i++) {
+    if (acc + segLens[i] >= target) {
+      const a = pts[i], b = pts[i + 1];
+      const L = segLens[i] || 1;
+      const t = (target - acc) / L;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, dx: (b.x - a.x) / L, dy: (b.y - a.y) / L };
+    }
+    acc += segLens[i];
+  }
+  return null;
+}
+
 /* ----- line: endpoint-based shape (DESIGN 2-1 branch B); p1→p2, no fill ----- */
 function renderLine(obj) {
   const arrowHead = obj.arrowHead ?? "none";
@@ -364,6 +407,7 @@ function renderLine(obj) {
   // strokeLevel 0 = black (DESIGN 2-2). stroke-width is in world units.
   el.setAttribute("stroke", color);
   el.setAttribute("stroke-width", sw);
+  applyDash(el, obj);
 
   if (arrowHead === "none" || L === 0) {
     if (obj.id) el.dataset.id = obj.id;
@@ -389,15 +433,69 @@ function renderLine(obj) {
 }
 
 /* ----- polyline: many connected points, black stroke, no fill (click-to-click) ----- */
+// Arrowheads use the SAME single arrowHead field + makeArrowHead() as renderLine
+// (one setting for the whole line, no per-segment array):
+//   end    = last point, direction of the last segment
+//   both   = first point (reverse of first segment) + last point
+//   center = 50% path-length point, pointing along travel direction
+// The arrow-bearing END SEGMENT is retracted by the arrow length, like renderLine.
 function renderPolyline(obj) {
+  const arrowHead = obj.arrowHead ?? "none";
+  const sw = obj.strokeWidth;
+  const color = grayHex(obj.strokeLevel);
+  const pts = obj.points || [];
+  const n = pts.length;
+
+  // Unit directions of the first/last segments (for arrow placement + retraction).
+  let endDir = null, startDir = null;
+  if (n >= 2) {
+    const a = pts[n - 2], b = pts[n - 1];
+    const eL = Math.hypot(b.x - a.x, b.y - a.y);
+    if (eL > 0) endDir = { x: (b.x - a.x) / eL, y: (b.y - a.y) / eL };
+    const c = pts[0], d = pts[1];
+    const sL = Math.hypot(d.x - c.x, d.y - c.y);
+    if (sL > 0) startDir = { x: (d.x - c.x) / sL, y: (d.y - c.y) / sL };
+  }
+
+  // Working copy of the points; retract the arrow-bearing endpoints to the notch.
+  const draw = pts.map((p) => ({ x: p.x, y: p.y }));
+  const arrowLen = sw * 4.5 * 0.7; // matches renderLine: length - notchDepth
+  if ((arrowHead === "end" || arrowHead === "both") && endDir) {
+    draw[n - 1] = { x: pts[n - 1].x - endDir.x * arrowLen, y: pts[n - 1].y - endDir.y * arrowLen };
+  }
+  if (arrowHead === "both" && startDir) {
+    draw[0] = { x: pts[0].x + startDir.x * arrowLen, y: pts[0].y + startDir.y * arrowLen };
+  }
+
   const el = document.createElementNS(SVG_NS, "polyline");
-  el.setAttribute("points", obj.points.map((p) => `${p.x},${p.y}`).join(" "));
+  el.setAttribute("points", draw.map((p) => `${p.x},${p.y}`).join(" "));
   el.setAttribute("fill", "none");
   // strokeLevel 0 = black (DESIGN 2-2). stroke-width is in world units.
-  el.setAttribute("stroke", grayHex(obj.strokeLevel));
-  el.setAttribute("stroke-width", obj.strokeWidth);
-  if (obj.id) el.dataset.id = obj.id;
-  return el;
+  el.setAttribute("stroke", color);
+  el.setAttribute("stroke-width", sw);
+  applyDash(el, obj);
+
+  if (arrowHead === "none" || n < 2) {
+    if (obj.id) el.dataset.id = obj.id;
+    return el;
+  }
+
+  const g = document.createElementNS(SVG_NS, "g");
+  if (obj.id) g.dataset.id = obj.id;
+  g.appendChild(el);
+
+  if ((arrowHead === "end" || arrowHead === "both") && endDir) {
+    g.appendChild(makeArrowHead(pts[n - 1].x, pts[n - 1].y, endDir.x, endDir.y, sw, color));
+  }
+  if (arrowHead === "both" && startDir) {
+    g.appendChild(makeArrowHead(pts[0].x, pts[0].y, -startDir.x, -startDir.y, sw, color));
+  }
+  if (arrowHead === "center") {
+    const m = polylineMidpoint(pts);
+    if (m) g.appendChild(makeArrowHead(m.x, m.y, m.dx, m.dy, sw, color));
+  }
+
+  return g;
 }
 
 /* ----- Catmull-Rom spline → SVG cubic Bezier path string ----- */
@@ -430,6 +528,7 @@ function renderCurve(obj) {
   el.setAttribute("fill", "none");
   el.setAttribute("stroke", grayHex(obj.strokeLevel));
   el.setAttribute("stroke-width", obj.strokeWidth);
+  applyDash(el, obj); // curve: dashes only this round (no arrowheads)
   if (obj.id) el.dataset.id = obj.id;
   return el;
 }
@@ -538,7 +637,7 @@ function combinedGroupBBox(members, scene) {
 }
 
 function renderHandles(sel, scene, zoom, activeTool) {
-  const half = 10 / zoom;
+  const half = 6 / zoom;
   const sw   = 0.5 / zoom;
 
   const g = document.createElementNS(SVG_NS, "g");

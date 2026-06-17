@@ -11,7 +11,7 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld } from "./viewport.js?v=0.7.1";
+import { screenToWorld } from "./viewport.js?v=0.8.0";
 
 // Default look until the inspector exists (DESIGN §3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.5; // world units (≈0.5mm on the 100mm artboard)
@@ -124,6 +124,14 @@ function setupDrawing() {
     let hitId = null;
     _state.update((s) => {
       hitId = hitTest(s.objects, p, tol);
+      if (hitId !== null) {
+        const _hlObj = s.objects.find((o) => o.id === hitId);
+        const _hlLayerId = _hlObj ? (_hlObj.layerId ?? 1) : 1;
+        const _hlLayer = (s.layers || []).find(l => l.id === _hlLayerId);
+        if (!_hlLayer || _hlLayer.visible === false || _hlLayer.locked || _hlLayerId !== s.activeLayerId) {
+          hitId = null;
+        }
+      }
       if (hitId === null) {
         if (_at !== "V") s.selectedIds = []; // rotate: clear immediately
         // V: defer selection to mouseup so marquee can run
@@ -208,6 +216,7 @@ function setupDrawing() {
       if (isCommittable(shape)) {
         shape.id = `obj_${Date.now().toString(36)}_${++_idCounter}`;
         shape.order = s.objects.length;
+        shape.layerId = s.activeLayerId;
         s.objects.push(shape);
         s.activeTool = "V"; // auto-return to select right after drawing (DESIGN 4-3)
       }
@@ -252,7 +261,13 @@ function setupDrawing() {
     _state.update((s) => {
       s.targetedId = null;
       s.selectedIds = s.objects
-        .filter((o) => { const bb = getObjectBBox(o); return bb && bboxIntersects(bb, selRect); })
+        .filter((o) => {
+          const _mLayerId = o.layerId ?? 1;
+          const _mLayer = (s.layers || []).find(l => l.id === _mLayerId);
+          if (!_mLayer || _mLayer.visible === false || _mLayer.locked || _mLayerId !== s.activeLayerId) return false;
+          const bb = getObjectBBox(o);
+          return bb && bboxIntersects(bb, selRect);
+        })
         .map((o) => o.id);
     });
   });
@@ -346,6 +361,7 @@ function commitClickShape(shape) {
   _state.update((s) => {
     shape.id = `obj_${Date.now().toString(36)}_${++_idCounter}`;
     shape.order = s.objects.length;
+    shape.layerId = s.activeLayerId;
     s.objects.push(shape);
     s.draft = null;
     s.activeTool = "V";
@@ -544,8 +560,8 @@ function makeShape(type, a, b) {
     rotation: 0,
     strokeLevel: 0,        // 0 = black (DESIGN 2-2)
     strokeWidth: DEFAULT_STROKE_WIDTH,
-    fillLevel: 0,          // unused while fillNone is true
-    fillNone: true,        // border only, hollow (DESIGN 3-2); clickable (5-3)
+    fillLevel: 214,
+    fillNone: false,
     locked: false,
     layerId: 1,
     order: 0,              // assigned on commit (z-order within layer)
@@ -565,7 +581,10 @@ function makeLine(a, b) {
     rotation: 0,
     strokeLevel: 0,        // 0 = black (DESIGN 2-2)
     strokeWidth: DEFAULT_STROKE_WIDTH,
-    arrowHead: "none",
+    // ----- branch-B common line props (arrow + dashes) -----
+    arrowHead: "none",     // "none" | "end" | "both" | "center"
+    dashLength: 0,         // world units (mm); 0 = solid (no dasharray)
+    dashGap: 0,            // world units (mm); 0 = solid
     locked: false,
     layerId: 1,
     order: 0,              // assigned on commit (z-order within layer)
@@ -583,6 +602,10 @@ function makePolyline(points) {
     rotation: 0,
     strokeLevel: 0,        // 0 = black (DESIGN 2-2)
     strokeWidth: DEFAULT_STROKE_WIDTH,
+    // ----- branch-B common line props (arrow + dashes) -----
+    arrowHead: "none",     // "none" | "end" | "both" | "center"
+    dashLength: 0,         // world units (mm); 0 = solid (no dasharray)
+    dashGap: 0,            // world units (mm); 0 = solid
     locked: false,
     layerId: 1,
     order: 0,              // assigned on commit (z-order within layer)
@@ -598,6 +621,10 @@ function makeCurve(points) {
     rotation: 0,
     strokeLevel: 0,
     strokeWidth: DEFAULT_STROKE_WIDTH,
+    // ----- branch-B common line props (curve: dashes only this round) -----
+    arrowHead: "none",     // schema-common; curve excluded from arrowheads for now
+    dashLength: 0,         // world units (mm); 0 = solid (no dasharray)
+    dashGap: 0,            // world units (mm); 0 = solid
     locked: false,
     layerId: 1,
     order: 0,
@@ -708,7 +735,7 @@ function _commitText() {
         fontSize: 14,
         rotation: 0,
         locked: false,
-        layerId: 1,
+        layerId: s.activeLayerId,
         order: s.objects.length,
       });
     }

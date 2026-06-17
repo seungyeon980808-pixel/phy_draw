@@ -39,4 +39,14 @@ export const state = createStore({
 
   // targetedId: id of the single group member targeted by double-click (주황색 지목 상태). null when idle.
   targetedId: null,
+
+  // activeLayerId: the layer currently being drawn/edited.
+  activeLayerId: 1,
+
+  // layers: ordered list of layers; each shape will reference its layer via obj.layerId.
+  layers: [
+    { id: 1, name: "레이어 1", visible: true, locked: false },
+    { id: 2, name: "레이어 2", visible: true, locked: false },
+    { id: 3, name: "레이어 3", visible: true, locked: false },
+  ],
 });

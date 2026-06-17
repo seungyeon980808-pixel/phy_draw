@@ -1,24 +1,62 @@
 /* ===== INSPECTOR PANEL ===== */
 
+:root {
+  --insp-bg: #f6f8fa;
+  --insp-field-bg: #ffffff;
+  --insp-border: #d0d7de;
+  --insp-text: #0d1117;
+  --insp-label: #57606a;
+  --insp-header: #0d1117;
+  --insp-accent: #0969da;
+  --insp-radius: 3px;
+}
+
 .panel-right {
   width: 220px;
+  min-width: 200px;
+  max-width: 400px;
   flex-shrink: 0;
-  border-left: 1px solid #d0d7de;
+  border-left: 1px solid var(--insp-border);
   overflow-y: auto;
+  background: var(--insp-bg);
+  position: relative;
+}
+
+.panel-right .panel-title {
+  background: var(--insp-bg);
+  color: var(--insp-header);
+  border-bottom: 1px solid var(--insp-border);
+  font-size: 11px;
 }
 
 #inspector {
   display: flex;
   flex-direction: column;
   height: 100%;
-  font-size: 12px;
-  color: #0d1117;
+  font-size: 11px;
+  font-family: "IBM Plex Sans KR", sans-serif;
+  color: var(--insp-text);
+}
+
+/* Resize handle — positioned relative to .panel-right (nearest positioned ancestor) */
+#inspector-resize {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 5px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 10;
+}
+
+#inspector-resize:hover {
+  background: rgba(9, 105, 218, 0.18);
 }
 
 #inspector-empty {
-  padding: 16px 12px;
-  color: #57606a;
-  font-size: 12px;
+  padding: 10px 8px;
+  color: var(--insp-label);
+  font-size: 11px;
 }
 
 #inspector-content {
@@ -28,20 +66,26 @@
 
 /* ----- Collapsible section ----- */
 .insp-section {
-  border-bottom: 1px solid #d0d7de;
+  border-bottom: 1px solid var(--insp-border);
 }
 
 .insp-summary {
-  padding: 8px 12px;
+  padding: 6px 8px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
-  color: #0d1117;
+  color: var(--insp-header);
   user-select: none;
   list-style: none;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.insp-summary:hover {
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .insp-summary::-webkit-details-marker { display: none; }
@@ -49,9 +93,9 @@
 .insp-summary::before {
   content: "›";
   display: inline-block;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1;
-  transition: transform 0.15s;
+  transition: transform 0.12s;
 }
 
 details[open] > .insp-summary::before {
@@ -59,59 +103,69 @@ details[open] > .insp-summary::before {
 }
 
 .insp-body {
-  padding: 12px;
+  padding: 6px 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
 }
 
 .insp-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .insp-field-label {
-  font-size: 12px;
-  color: #57606a;
-  min-width: 44px;
+  font-size: 11px;
+  color: var(--insp-label);
+  min-width: 28px;
+  flex-shrink: 0;
+  text-align: right;
 }
 
 .insp-input {
   flex: 1;
-  font-size: 12px;
-  color: #0d1117;
-  border: 1px solid #d0d7de;
-  border-radius: 4px;
-  padding: 2px 4px;
-  background: #f6f8fa;
-  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--insp-text);
+  background: var(--insp-field-bg);
+  border: 1px solid var(--insp-border);
+  border-radius: var(--insp-radius);
+  padding: 3px 6px;
+  font-family: "IBM Plex Mono", monospace;
+  min-width: 0;
 }
 
 .insp-input:focus {
-  outline: 2px solid #0969da;
-  outline-offset: -1px;
+  outline: none;
+  border-color: var(--insp-accent);
 }
 
 .insp-range {
   flex: 1;
   cursor: pointer;
-  accent-color: #0969da;
+  accent-color: var(--insp-accent);
+  min-width: 0;
 }
 
 .insp-num {
-  font-size: 12px;
-  color: #0d1117;
+  font-size: 11px;
+  color: var(--insp-text);
   min-width: 28px;
   text-align: right;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: "IBM Plex Mono", monospace;
 }
 
 .insp-cb {
   cursor: pointer;
-  accent-color: #0969da;
-  width: 13px;
-  height: 13px;
+  accent-color: var(--insp-accent);
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.insp-unit {
+  font-size: 10px;
+  color: var(--insp-label);
   flex-shrink: 0;
 }
 
@@ -119,7 +173,7 @@ details[open] > .insp-summary::before {
 .cp-root {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .cp-palette {
@@ -128,30 +182,30 @@ details[open] > .insp-summary::before {
 }
 
 .cp-swatch {
-  width: 20px;
-  height: 20px;
-  border-radius: 3px;
-  border: 1px solid #d0d7de;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--insp-radius);
+  border: 1px solid var(--insp-border);
   cursor: pointer;
   flex-shrink: 0;
 }
 
 .cp-swatch:hover {
-  outline: 2px solid #0969da;
+  outline: 2px solid var(--insp-accent);
   outline-offset: 1px;
 }
 
 .cp-bar-wrap {
   position: relative;
-  height: 16px;
+  height: 14px;
 }
 
 .cp-bar {
   position: absolute;
   inset: 0;
-  border-radius: 8px;
+  border-radius: var(--insp-radius);
   background: linear-gradient(to right, #ffffff, #000000);
-  border: 1px solid #d0d7de;
+  border: 1px solid var(--insp-border);
   cursor: crosshair;
 }
 
@@ -159,12 +213,12 @@ details[open] > .insp-summary::before {
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: white;
-  border: 2px solid #0969da;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  border: 2px solid var(--insp-accent);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
   cursor: grab;
   z-index: 1;
   pointer-events: all;
@@ -174,7 +228,7 @@ details[open] > .insp-summary::before {
 
 .cp-preview {
   width: 100%;
-  height: 18px;
-  border-radius: 4px;
-  border: 1px solid #d0d7de;
+  height: 14px;
+  border-radius: var(--insp-radius);
+  border: 1px solid var(--insp-border);
 }

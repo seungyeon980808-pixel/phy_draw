@@ -2,6 +2,15 @@
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
+// Branch-B "line family": share arrow + dash controls; fill section is hidden for them.
+const LINE_TYPES = ["line", "polyline", "curve"];
+// Dash presets (world units / mm). 실선 = (0,0) = solid (no dasharray).
+const DASH_PRESETS = [
+  { label: "실선",  dashLength: 0, dashGap: 0 },
+  { label: "점선1", dashLength: 2, dashGap: 2 },
+  { label: "점선2", dashLength: 5, dashGap: 3 },
+  { label: "점선3", dashLength: 1, dashGap: 3 },
+];
 
 // True while user is dragging a color picker bar — suppresses populate() re-entry.
 let _dragging = false;
@@ -119,6 +128,27 @@ export function initInspector(state) {
   const contentEl = document.getElementById("inspector-content");
   if (!emptyEl || !contentEl) return;
 
+  // Wire left-edge resize handle
+  const resizeHandle = document.getElementById("inspector-resize");
+  const panelRight = document.querySelector(".panel-right");
+  if (resizeHandle && panelRight) {
+    resizeHandle.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = panelRight.offsetWidth;
+      function onMove(e2) {
+        const newW = Math.min(400, Math.max(200, startW + (startX - e2.clientX)));
+        panelRight.style.width = newW + "px";
+      }
+      function onUp() {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      }
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    });
+  }
+
   // Capture a full objects snapshot from current state (for undo)
   function snapBefore() {
     const s = state.get();
@@ -170,11 +200,19 @@ export function initInspector(state) {
   widthRange.max = "5";
   widthRange.step = "0.1";
   widthRange.className = "insp-range";
-  const widthSpan = document.createElement("span");
-  widthSpan.className = "insp-num";
+  const widthNum = document.createElement("input");
+  widthNum.type = "number";
+  widthNum.min = "0.1";
+  widthNum.max = "5";
+  widthNum.step = "0.1";
+  widthNum.style.cssText = "width:40px;font-size:11px;border:1px solid #3a3c41;border-radius:3px;padding:2px 4px;text-align:center;background:#1e1f22;color:#dcddde;";
+  const widthUnit = document.createElement("span");
+  widthUnit.textContent = "pt";
+  widthUnit.className = "insp-unit";
   widthRow.appendChild(widthLbl);
   widthRow.appendChild(widthRange);
-  widthRow.appendChild(widthSpan);
+  widthRow.appendChild(widthNum);
+  widthRow.appendChild(widthUnit);
   sec1Body.appendChild(widthRow);
 
   // Arrow head control (line objects only)
@@ -195,7 +233,7 @@ export function initInspector(state) {
   ARROW_OPTIONS.forEach(({ label, value }) => {
     const btn = document.createElement("button");
     btn.textContent = label;
-    btn.style.cssText = "padding:2px 7px;font-size:11px;cursor:pointer;border:1px solid #d0d7de;border-radius:4px;background:#f6f8fa;color:#0d1117;";
+    btn.style.cssText = "padding:2px 6px;font-size:10px;cursor:pointer;border:1px solid #3a3c41;border-radius:3px;background:#1e1f22;color:#dcddde;";
     btn.addEventListener("click", () => {
       const s = state.get();
       const ids = s.selectedIds || [];
@@ -203,7 +241,8 @@ export function initInspector(state) {
       const snap = JSON.parse(JSON.stringify(s.objects));
       state.update((s2) => {
         const o = s2.objects.find((o) => o.id === ids[0]);
-        if (o && o.type === "line") {
+        // Same single arrowHead field for line AND polyline (curve excluded this round).
+        if (o && (o.type === "line" || o.type === "polyline")) {
           o.arrowHead = value;
           s2.undoStack.push(snap);
           s2.redoStack = [];
@@ -217,11 +256,133 @@ export function initInspector(state) {
   arrowRow.appendChild(arrowBtns);
   sec1Body.appendChild(arrowRow);
 
+  // ---- Dash presets + length/gap sliders (line/polyline/curve) ----
+  const dashRow = document.createElement("div");
+  dashRow.className = "insp-row";
+  const dashLbl = document.createElement("label");
+  dashLbl.className = "insp-field-label";
+  dashLbl.textContent = "선 종류";
+  const dashBtns = document.createElement("div");
+  dashBtns.style.cssText = "display:flex;gap:4px;flex-wrap:wrap;";
+  const _dashBtnEls = [];
+  DASH_PRESETS.forEach((preset) => {
+    const btn = document.createElement("button");
+    btn.textContent = preset.label;
+    btn.style.cssText = "padding:2px 6px;font-size:10px;cursor:pointer;border:1px solid #3a3c41;border-radius:3px;background:#1e1f22;color:#dcddde;";
+    btn.addEventListener("click", () => {
+      const s = state.get();
+      const ids = s.selectedIds || [];
+      if (ids.length !== 1) return;
+      const snap = JSON.parse(JSON.stringify(s.objects));
+      state.update((s2) => {
+        const o = s2.objects.find((o) => o.id === ids[0]);
+        if (o && LINE_TYPES.includes(o.type)) {
+          o.dashLength = preset.dashLength;
+          o.dashGap = preset.dashGap;
+          s2.undoStack.push(snap);
+          s2.redoStack = [];
+        }
+      });
+    });
+    _dashBtnEls.push(btn);
+    dashBtns.appendChild(btn);
+  });
+  dashRow.appendChild(dashLbl);
+  dashRow.appendChild(dashBtns);
+  sec1Body.appendChild(dashRow);
+
+  // Length/gap sliders — visible only when a dashed preset is active (dashLength > 0).
+  function makeDashSliderRow(labelText, prop) {
+    const row = document.createElement("div");
+    row.className = "insp-row";
+    const lbl = document.createElement("label");
+    lbl.className = "insp-field-label";
+    lbl.textContent = labelText;
+    const range = document.createElement("input");
+    range.type = "range";
+    range.min = "0.5";
+    range.max = "10";
+    range.step = "0.5";
+    range.className = "insp-range";
+    const num = document.createElement("input");
+    num.type = "number";
+    num.min = "0.5";
+    num.max = "10";
+    num.step = "0.5";
+    num.style.cssText = "width:40px;font-size:11px;border:1px solid #3a3c41;border-radius:3px;padding:2px 4px;text-align:center;background:#1e1f22;color:#dcddde;";
+    const unit = document.createElement("span");
+    unit.textContent = "mm";
+    unit.className = "insp-unit";
+    row.appendChild(lbl);
+    row.appendChild(range);
+    row.appendChild(num);
+    row.appendChild(unit);
+
+    function apply(val) {
+      const s = state.get();
+      const ids = s.selectedIds || [];
+      if (ids.length !== 1) return;
+      state.update((s2) => {
+        const o = s2.objects.find((o) => o.id === ids[0]);
+        if (o && LINE_TYPES.includes(o.type)) o[prop] = val;
+      });
+    }
+
+    let _snap = null;
+    range.addEventListener("mousedown", () => { _snap = snapBefore(); });
+    range.addEventListener("input", () => {
+      const val = parseFloat(range.value);
+      num.value = val.toFixed(1);
+      apply(val);
+    });
+    range.addEventListener("change", () => { pushSnap(_snap); _snap = null; });
+
+    let _numSnap = null;
+    num.addEventListener("focus", () => { _numSnap = snapBefore(); });
+    num.addEventListener("input", () => {
+      const raw = parseFloat(num.value);
+      if (!isFinite(raw)) return;
+      const val = Math.min(10, Math.max(0.5, raw));
+      range.value = val;
+      apply(val);
+    });
+    num.addEventListener("change", () => { pushSnap(_numSnap); _numSnap = null; });
+
+    return { el: row, range, num };
+  }
+
+  const dashSliders = document.createElement("div");
+  dashSliders.style.cssText = "display:flex;flex-direction:column;gap:5px;";
+  const dashLenSlider = makeDashSliderRow("길이", "dashLength");
+  const dashGapSlider = makeDashSliderRow("간격", "dashGap");
+  dashSliders.appendChild(dashLenSlider.el);
+  dashSliders.appendChild(dashGapSlider.el);
+  sec1Body.appendChild(dashSliders);
+
+  // Highlight the active preset button (or none, for a custom slider value).
+  function syncDashControls(obj) {
+    const dl = obj.dashLength ?? 0;
+    const dg = obj.dashGap ?? 0;
+    _dashBtnEls.forEach((btn, i) => {
+      const p = DASH_PRESETS[i];
+      const active = p.dashLength === dl && p.dashGap === dg;
+      btn.style.background = active ? "#4a9eff" : "#1e1f22";
+      btn.style.color      = active ? "#ffffff" : "#dcddde";
+      btn.style.border     = active ? "1px solid #4a9eff" : "1px solid #3a3c41";
+    });
+    const dashed = dl > 0;
+    dashSliders.style.display = dashed ? "" : "none";
+    if (dashed) {
+      dashLenSlider.range.value = dl; dashLenSlider.num.value = dl.toFixed(1);
+      dashGapSlider.range.value = dg; dashGapSlider.num.value = dg.toFixed(1);
+    }
+  }
+
   let _widthSnap = null;
   widthRange.addEventListener("mousedown", () => { _widthSnap = snapBefore(); });
   widthRange.addEventListener("input", () => {
     const val = parseFloat(widthRange.value);
-    widthSpan.textContent = val.toFixed(1);
+    widthNum.value = val.toFixed(1);
     const s = state.get();
     const ids = s.selectedIds || [];
     if (!ids.length) return;
@@ -234,13 +395,32 @@ export function initInspector(state) {
   });
   widthRange.addEventListener("change", () => { pushSnap(_widthSnap); _widthSnap = null; });
 
+  let _widthNumSnap = null;
+  widthNum.addEventListener("focus", () => { _widthNumSnap = snapBefore(); });
+  widthNum.addEventListener("input", () => {
+    const raw = parseFloat(widthNum.value);
+    if (!isFinite(raw)) return;
+    const val = Math.min(5, Math.max(0.1, raw));
+    widthRange.value = val;
+    const s = state.get();
+    const ids = s.selectedIds || [];
+    if (!ids.length) return;
+    state.update((s2) => {
+      (s2.selectedIds || []).forEach(id => {
+        const o = s2.objects.find((o) => o.id === id);
+        if (o) o.strokeWidth = val;
+      });
+    });
+  });
+  widthNum.addEventListener("change", () => { pushSnap(_widthNumSnap); _widthNumSnap = null; });
+
   // ---- Group section: 개체 풀기 button (shown in targeted and group-selected states) ----
   const groupDiv = document.createElement("div");
   groupDiv.className = "insp-body";
   groupDiv.style.cssText = "padding: 6px 8px;";
   const ungroupBtn = document.createElement("button");
   ungroupBtn.textContent = "개체 풀기";
-  ungroupBtn.style.cssText = "padding: 4px 10px; font-size: 12px; cursor: pointer; border: 1px solid #d0d7de; border-radius: 4px; background: #f6f8fa; color: #0d1117; width: 100%;";
+  ungroupBtn.style.cssText = "padding:4px 10px;font-size:11px;cursor:pointer;border:1px solid #3a3c41;border-radius:3px;background:#1e1f22;color:#dcddde;width:100%;";
   ungroupBtn.addEventListener("click", () => {
     const s = state.get();
     const refId = s.targetedId || (s.selectedIds || [])[0];
@@ -370,7 +550,19 @@ export function initInspector(state) {
   const hF   = makePosRow("H",     "h",        "0.1");
   const rotF = makePosRow("회전 °", "rotation", "1");
 
-  [xF, yF, wF, hF, rotF].forEach((f) => sec3Body.appendChild(f.el));
+  sec3Body.appendChild(rotF.el);
+
+  const xyPair = document.createElement("div");
+  xyPair.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:4px;";
+  xyPair.appendChild(xF.el);
+  xyPair.appendChild(yF.el);
+  sec3Body.appendChild(xyPair);
+
+  const whPair = document.createElement("div");
+  whPair.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:4px;";
+  whPair.appendChild(wF.el);
+  whPair.appendChild(hF.el);
+  sec3Body.appendChild(whPair);
 
   const sec3 = makeSection("크기·위치", sec3Body);
   contentEl.appendChild(sec3);
@@ -410,8 +602,120 @@ export function initInspector(state) {
   const sec4 = makeSection("보호", sec4Body);
   contentEl.appendChild(sec4);
 
+  /* ---- Section: 레이어 (always visible — lives outside contentEl) ---- */
+  const layerDetails = document.createElement("details");
+  layerDetails.open = true;
+  layerDetails.className = "insp-section";
+  const layerSummary = document.createElement("summary");
+  layerSummary.className = "insp-summary";
+  layerSummary.textContent = "레이어";
+  layerDetails.appendChild(layerSummary);
+
+  const layerBody = document.createElement("div");
+  layerBody.className = "insp-body";
+  layerBody.style.padding = "4px 0";
+  layerDetails.appendChild(layerBody);
+
+  const _inspectorRoot = emptyEl.parentElement;
+  if (_inspectorRoot) _inspectorRoot.appendChild(layerDetails);
+
+  function renderLayerPanel(s) {
+    if (layerBody.contains(document.activeElement)) return; // don't clobber inline name edit
+    layerBody.innerHTML = "";
+    const layers = [...(s.layers || [])].reverse(); // layer 3 on top → layer 1 on bottom
+    for (const layer of layers) {
+      const isActive = layer.id === s.activeLayerId;
+      const isHidden = layer.visible === false;
+
+      const row = document.createElement("div");
+      row.style.cssText =
+        "display:flex;align-items:center;gap:4px;padding:4px 8px;cursor:pointer;" +
+        "border-left:3px solid " + (isActive ? "#0969da" : "transparent") + ";" +
+        "background:" + (isActive ? "rgba(9,105,218,0.12)" : "transparent") + ";";
+
+      // Visibility toggle
+      const eyeBtn = document.createElement("button");
+      eyeBtn.textContent = "👁";
+      eyeBtn.title = isHidden ? "표시" : "숨기기";
+      eyeBtn.style.cssText =
+        "background:none;border:none;cursor:pointer;font-size:12px;padding:0 2px;" +
+        "line-height:1;flex-shrink:0;opacity:" + (isHidden ? "0.3" : "1") + ";";
+      eyeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        state.update((s2) => {
+          const l = s2.layers.find(l => l.id === layer.id);
+          if (l) l.visible = l.visible === false ? true : false;
+        });
+      });
+
+      // Lock toggle
+      const lockBtn = document.createElement("button");
+      lockBtn.textContent = layer.locked ? "🔒" : "🔓";
+      lockBtn.title = layer.locked ? "잠금 해제" : "잠금";
+      lockBtn.style.cssText =
+        "background:none;border:none;cursor:pointer;font-size:12px;padding:0 2px;line-height:1;flex-shrink:0;";
+      lockBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        state.update((s2) => {
+          const l = s2.layers.find(l => l.id === layer.id);
+          if (l) l.locked = !l.locked;
+        });
+      });
+
+      // Layer name
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = layer.name;
+      nameSpan.style.cssText =
+        "flex:1;font-size:12px;user-select:none;overflow:hidden;text-overflow:ellipsis;" +
+        "white-space:nowrap;opacity:" + (isHidden ? "0.4" : "1") + ";";
+
+      // Click row → set active layer
+      row.addEventListener("click", () => {
+        state.update((s2) => {
+          s2.activeLayerId = layer.id;
+          s2.selectedIds = [];
+          s2.targetedId = null;
+        });
+      });
+
+      // Double-click name → inline edit
+      nameSpan.addEventListener("dblclick", (e) => {
+        e.stopPropagation();
+        const inp = document.createElement("input");
+        inp.value = layer.name;
+        inp.style.cssText =
+          "flex:1;font-size:12px;background:#1e1f22;color:#dcddde;" +
+          "border:1px solid #0969da;border-radius:3px;padding:1px 4px;width:100%;min-width:0;";
+        nameSpan.replaceWith(inp);
+        inp.focus();
+        inp.select();
+        let committed = false;
+        function commitName() {
+          if (committed) return;
+          committed = true;
+          const newName = inp.value.trim() || layer.name;
+          state.update((s2) => {
+            const l = s2.layers.find(l => l.id === layer.id);
+            if (l) l.name = newName;
+          });
+        }
+        inp.addEventListener("blur", commitName);
+        inp.addEventListener("keydown", (e2) => {
+          if (e2.key === "Enter") { inp.blur(); }
+          if (e2.key === "Escape") { committed = true; renderLayerPanel(state.get()); }
+        });
+      });
+
+      row.appendChild(eyeBtn);
+      row.appendChild(lockBtn);
+      row.appendChild(nameSpan);
+      layerBody.appendChild(row);
+    }
+  }
+
   /* ---- Subscribe: populate controls on every state change ---- */
   function populate(s) {
+    renderLayerPanel(s);
     const ids = s.selectedIds || [];
 
     if (ids.length === 0) {
@@ -431,8 +735,16 @@ export function initInspector(state) {
       sec3.style.display = "none";
       sec4.style.display = "none";
       arrowRow.style.display = "none";
+      dashRow.style.display = "none";
+      dashSliders.style.display = "none";
       return;
     }
+
+    // Whether every selected object is a line-family type (line/polyline/curve).
+    const allLineFamily = ids.length > 0 && ids.every((id) => {
+      const o = s.objects.find((o) => o.id === id);
+      return o && LINE_TYPES.includes(o.type);
+    });
 
     // Determine if all selected objects share the same groupId
     const firstObj = s.objects.find((o) => o.id === ids[0]);
@@ -445,17 +757,19 @@ export function initInspector(state) {
     if (allInGroup) {
       groupDiv.style.display = "";
       sec1.style.display = "";
-      sec2.style.display = "";
+      sec2.style.display = allLineFamily ? "none" : ""; // no fill for line family
       sec3.style.display = "none";
       sec4.style.display = "none";
       arrowRow.style.display = "none";
+      dashRow.style.display = "none";
+      dashSliders.style.display = "none";
 
       if (_dragging) return;
 
       strokeCP.setValue(firstObj.strokeLevel ?? 0);
       const _sw = firstObj.strokeWidth ?? 1;
       widthRange.value = _sw;
-      widthSpan.textContent = _sw.toFixed(1);
+      widthNum.value =_sw.toFixed(1);
 
       const _fn = !!(firstObj.fillNone);
       fnCb.checked = _fn;
@@ -469,10 +783,12 @@ export function initInspector(state) {
     if (ids.length > 1) {
       // Multi-selection (no shared group): only stroke/fill sections visible
       sec1.style.display = "";
-      sec2.style.display = "";
+      sec2.style.display = allLineFamily ? "none" : ""; // no fill for line family
       sec3.style.display = "none";
       sec4.style.display = "none";
       arrowRow.style.display = "none";
+      dashRow.style.display = "none";
+      dashSliders.style.display = "none";
 
       if (_dragging) return;
 
@@ -481,7 +797,7 @@ export function initInspector(state) {
       strokeCP.setValue(firstObj.strokeLevel ?? 0);
       const sw = firstObj.strokeWidth ?? 1;
       widthRange.value = sw;
-      widthSpan.textContent = sw.toFixed(1);
+      widthNum.value =sw.toFixed(1);
 
       const fn = !!(firstObj.fillNone);
       fnCb.checked = fn;
@@ -501,25 +817,35 @@ export function initInspector(state) {
     if (_dragging) return; // skip during color picker drag to avoid handle jump
 
     sec1.style.display = "";
-    sec2.style.display = "";
+    // 채우기 섹션은 선 계열(line/polyline/curve)에서 숨긴다.
+    const isLineFamily = LINE_TYPES.includes(obj.type);
+    sec2.style.display = isLineFamily ? "none" : "";
 
-    // Arrow head (line only)
-    const isLine = obj.type === "line";
-    arrowRow.style.display = isLine ? "" : "none";
-    if (isLine) {
+    // Arrow head: line + polyline (curve excluded this round).
+    const showArrow = obj.type === "line" || obj.type === "polyline";
+    arrowRow.style.display = showArrow ? "" : "none";
+    if (showArrow) {
       const ah = obj.arrowHead ?? "none";
       Object.entries(_arrowBtnEls).forEach(([val, btn]) => {
-        btn.style.background = val === ah ? "#0969da" : "#f6f8fa";
-        btn.style.color      = val === ah ? "#ffffff" : "#0d1117";
-        btn.style.border     = val === ah ? "1px solid #0969da" : "1px solid #d0d7de";
+        btn.style.background = val === ah ? "#4a9eff" : "#1e1f22";
+        btn.style.color      = val === ah ? "#ffffff" : "#dcddde";
+        btn.style.border     = val === ah ? "1px solid #4a9eff" : "1px solid #3a3c41";
       });
+    }
+
+    // Dash presets + sliders: all line family (line/polyline/curve).
+    dashRow.style.display = isLineFamily ? "" : "none";
+    if (isLineFamily) {
+      syncDashControls(obj);
+    } else {
+      dashSliders.style.display = "none";
     }
 
     // Section 1
     strokeCP.setValue(obj.strokeLevel ?? 0);
     const sw = obj.strokeWidth ?? 1;
     widthRange.value = sw;
-    widthSpan.textContent = sw.toFixed(1);
+    widthNum.value =sw.toFixed(1);
 
     // Section 2
     const fn = !!(obj.fillNone);

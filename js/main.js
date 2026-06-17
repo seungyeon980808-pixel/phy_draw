@@ -7,12 +7,12 @@
 //   4. init tools (tool selection + the rectangle draw pipeline).
 
 // ?v= matches index.html so a version bump reloads every module, not just main.
-import { state } from "./state.js?v=0.7.1";
-import { render } from "./render.js?v=0.7.1";
-import { initViewport, getZoom, screenToWorld } from "./viewport.js?v=0.7.1";
-import { initTools } from "./tools.js?v=0.7.1";
-import { initTransform } from "./transform.js?v=0.7.1";
-import { initInspector } from "./inspector.js?v=0.7.1";
+import { state } from "./state.js?v=0.8.0";
+import { render } from "./render.js?v=0.8.0";
+import { initViewport, getZoom, screenToWorld } from "./viewport.js?v=0.8.0";
+import { initTools } from "./tools.js?v=0.8.0";
+import { initTransform } from "./transform.js?v=0.8.0";
+import { initInspector } from "./inspector.js?v=0.8.0";
 
 const svg = document.getElementById("canvas");
 const zoomReadout = document.getElementById("zoom-readout");
@@ -97,7 +97,7 @@ window.phyDraw = {
 })();
 
 console.info(
-  "[PhysicsExamDrawer v0.7.1] Pick R (or press R), drag on the canvas to draw a\n" +
+  "[PhysicsExamDrawer v0.8.0] Pick R (or press R), drag on the canvas to draw a\n" +
     "Press 'd' to toggle the live coord-debug overlay (pointer↔world mapping).\n" +
     "rectangle. Verify with:\n" +
     "  phyDraw.objects()        // array of committed rect objects\n" +
