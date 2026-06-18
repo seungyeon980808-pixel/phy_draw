@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="ko" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -21,7 +21,6 @@
   <div class="app">
     <!-- ----- LEFT: tools (V/R now; more shapes land later) ----- -->
     <aside class="panel panel-left">
-      <div class="panel-title">도구</div>
       <div class="tool-list" id="tool-list">
         <button class="tool-btn" type="button" data-tool="V" title="선택 (V)">
           <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3 L4 15.5 L7.5 12 L9.8 16.5 L11.7 15.6 L9.4 11.2 L14.5 11 Z"/></svg></kbd>
@@ -56,10 +55,8 @@
     <!-- ----- CENTER: canvas (the only working panel in 1A) ----- -->
     <main class="panel panel-center">
       <div class="canvas-toolbar">
-        <span class="hint">
-          T = 텍스트 · S/O/Y = 도형 · L/P/C = 선 · R = 회전 · 휠 = 수직팬 · Shift+휠 = 수평팬 · Ctrl+휠 = 줌 · Space+드래그 = 팬
-        </span>
         <span id="zoom-readout" class="zoom-readout">zoom 1.00×</span>
+        <button id="theme-toggle" class="theme-toggle" type="button" title="테마 전환" aria-label="테마 전환">☀</button>
       </div>
 
       <div class="canvas-wrap">
@@ -78,9 +75,8 @@
 
     <!-- ----- RIGHT: inspector ----- -->
     <aside class="panel panel-right">
-      <div class="panel-title">인스펙터</div>
+      <div id="inspector-resize"></div>
       <div id="inspector">
-        <div id="inspector-resize"></div>
         <div id="inspector-empty">선택된 오브젝트 없음</div>
         <div id="inspector-content" style="display:none">
           <!-- sections injected by inspector.js -->
@@ -91,11 +87,11 @@
 
   <!-- ===== FOOTER: version + date ===== -->
   <footer class="app-footer">
-    PhysicsExamDrawer Web · <strong>v0.11.1</strong> · 2026-06-18
+    PhysicsExamDrawer Web · <strong>v0.12.1</strong> · 2026-06-18
   </footer>
 
   <!-- ===== MODULES (load order matters: store → state → viewport → render → main) ===== -->
   <!-- ?v= busts the ES-module cache so edits actually load (DESIGN: cache-bust) -->
-  <script type="module" src="js/main.js?v=0.11.1"></script>
+  <script type="module" src="js/main.js?v=0.12.1"></script>
 </body>
 </html>

@@ -13,7 +13,7 @@
 // we can distinguish "click on already-selected → move allowed" from "click
 // selects a new object → just select, no move this press."
 
-import { screenToWorld } from "./viewport.js?v=0.11.1";
+import { screenToWorld } from "./viewport.js?v=0.12.0";
 
 /* ----- shared lock guard: locked objects are excluded from mutating ops ----- */
 function isMutable(o) { return o && !o.locked; }
@@ -22,6 +22,7 @@ function isMutable(o) { return o && !o.locked; }
  * Transforms are BAKED into the point coordinates (no rotation field), so the
  * points stay world-true. These helpers derive its branch-A bbox and bake ops. */
 function isClosedPoly(o) { return o && o.type === "polyline" && o.closed === true; }
+function isClosedCurve(o) { return o && o.type === "curve" && o.closed === true; }
 
 function polyBBox(points) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -189,9 +190,9 @@ function applyHandleDelta(obj, orig, handle, dx, dy, shiftKey) {
     }
     return;
   }
-  // Open polyline & curve: per-vertex endpoint handles (branch B). A CLOSED
-  // polyline instead falls through to branch-A bbox resize below.
-  if (obj.type === "curve" || (obj.type === "polyline" && obj.closed !== true)) {
+  // Open polyline & open curve: per-vertex endpoint handles (branch B). A CLOSED
+  // polyline or closed curve instead falls through to branch-A bbox resize below.
+  if ((obj.type === "curve" && !obj.closed) || (obj.type === "polyline" && obj.closed !== true)) {
     const i = parseInt(handle.slice(1), 10);
     obj.points = orig.points.map((p, j) =>
       j === i ? { x: p.x + dx, y: p.y + dy } : { x: p.x, y: p.y }
@@ -199,11 +200,12 @@ function applyHandleDelta(obj, orig, handle, dx, dy, shiftKey) {
     return;
   }
 
-  // Branch A: bounding box resize (rect / ellipse / triangle / closed polyline).
-  // A closed polyline has no x/y/w/h — derive its box from the point cloud, run
-  // the SAME per-handle math, then scale ALL points about the anchored corner.
-  const isPoly = isClosedPoly(obj);
-  const box0 = isPoly ? polyBBox(orig.points) : orig;
+  // Branch A: bounding box resize (rect / ellipse / triangle / closed polyline / closed curve).
+  // Closed polyline and closed curve have no x/y/w/h — derive the box from the point cloud,
+  // run the SAME per-handle math, then scale ALL points about the anchored corner.
+  const isPoly  = isClosedPoly(obj);
+  const isCurve = isClosedCurve(obj);
+  const box0 = (isPoly || isCurve) ? polyBBox(orig.points) : orig;
   const ratio = box0.w / box0.h;
   let { x, y, w, h } = box0;
 
@@ -251,9 +253,9 @@ function applyHandleDelta(obj, orig, handle, dx, dy, shiftKey) {
     h = MIN_SIZE;
   }
 
-  // Closed polyline: scale ALL points about the anchor — p' = anchor + (p - anchor) * (sx, sy).
-  // The box0 → new-box affine does exactly that (the anchored edge stays fixed).
-  if (isPoly) {
+  // Closed polyline / closed curve: scale ALL points about the anchor.
+  // p' = anchor + (p - anchor) * (sx, sy) — the box0 → new-box affine.
+  if (isPoly || isCurve) {
     const sx = box0.w ? w / box0.w : 1;
     const sy = box0.h ? h / box0.h : 1;
     obj.points = orig.points.map((p) => ({
@@ -474,7 +476,7 @@ export function initTransform(svg, state) {
           ids.forEach(id => {
             const o = s2.objects.find((o) => o.id === id);
             if (!isMutable(o)) return;
-            if (isClosedPoly(o)) { flipPolyPoints(o, flipAxis); changed = true; return; }
+            if (isClosedPoly(o) || isClosedCurve(o)) { flipPolyPoints(o, flipAxis); changed = true; return; }
             if (!["rect", "ellipse", "triangle"].includes(o.type)) return;
             o[flipAxis] = !(o[flipAxis] ?? false);
             changed = true;
@@ -514,7 +516,7 @@ export function initTransform(svg, state) {
           ids.forEach(id => {
             const o = s2.objects.find((o) => o.id === id);
             if (!isMutable(o)) return;
-            if (isClosedPoly(o)) { rotatePolyPoints(o, 5); changed = true; return; }
+            if (isClosedPoly(o) || isClosedCurve(o)) { rotatePolyPoints(o, 5); changed = true; return; }
             if (!["rect", "ellipse", "triangle"].includes(o.type)) return;
             o.rotation = (o.rotation ?? 0) + 5;
             changed = true;
@@ -554,7 +556,7 @@ export function initTransform(svg, state) {
           ids.forEach(id => {
             const o = s2.objects.find((o) => o.id === id);
             if (!isMutable(o)) return;
-            if (isClosedPoly(o)) { rotatePolyPoints(o, -5); changed = true; return; }
+            if (isClosedPoly(o) || isClosedCurve(o)) { rotatePolyPoints(o, -5); changed = true; return; }
             if (!["rect", "ellipse", "triangle"].includes(o.type)) return;
             o.rotation = (o.rotation ?? 0) - 5;
             changed = true;
@@ -763,9 +765,9 @@ export function initTransform(svg, state) {
           _rotating       = true;
           _rotObjId       = obj.id;
           _rotOrigObj     = JSON.parse(JSON.stringify(obj));
-          // Closed polyline rotates about its bbox CENTER (points are baked,
+          // Closed polyline/curve rotates about its bbox CENTER (points are baked,
           // there is no rotation field / opposite-corner pivot to track).
-          _rotPivot       = isClosedPoly(obj) ? polyCenter(obj.points) : getRotPivot(obj, hLabel);
+          _rotPivot       = (isClosedPoly(obj) || isClosedCurve(obj)) ? polyCenter(obj.points) : getRotPivot(obj, hLabel);
           const mouse     = screenToWorld(svg, s.viewBox, e.clientX, e.clientY);
           _rotStartAngle  = Math.atan2(mouse.y - _rotPivot.y, mouse.x - _rotPivot.x);
           _rotPendingSnap = JSON.parse(JSON.stringify(s.objects));
@@ -840,8 +842,8 @@ export function initTransform(svg, state) {
       // Ctrl = snap to 15-degree increments (applied to the accumulated delta)
       if (e.ctrlKey) deltaDeg = Math.round(deltaDeg / 15) * 15;
 
-      // Closed polyline: bake the rotation into every point about the bbox center.
-      if (isClosedPoly(_rotOrigObj)) {
+      // Closed polyline / closed curve: bake the rotation into every point about the bbox center.
+      if (isClosedPoly(_rotOrigObj) || isClosedCurve(_rotOrigObj)) {
         const rad = deltaDeg * (Math.PI / 180);
         const cosP = Math.cos(rad), sinP = Math.sin(rad);
         const px = _rotPivot.x, py = _rotPivot.y;

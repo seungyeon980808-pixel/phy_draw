@@ -8,7 +8,7 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom } from "./viewport.js?v=0.11.1";
+import { getZoom } from "./viewport.js?v=0.12.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -136,8 +136,23 @@ export function render(state) {
       pl.setAttribute("stroke-dasharray", "1.2 1.2");
       pl.style.stroke = _selColor;
       scene.appendChild(pl);
+    } else if (sel.type === "curve" && sel.closed === true) {
+      // Closed curve: bbox rect guide (same as closed polyline).
+      const bb = singleObjBBox(sel, scene);
+      if (bb) {
+        const box = document.createElementNS(SVG_NS, "rect");
+        box.setAttribute("x", bb.x);
+        box.setAttribute("y", bb.y);
+        box.setAttribute("width", bb.w);
+        box.setAttribute("height", bb.h);
+        box.setAttribute("fill", "none");
+        box.setAttribute("stroke-width", "0.4");
+        box.setAttribute("stroke-dasharray", "1.2 1.2");
+        box.style.stroke = _selColor;
+        scene.appendChild(box);
+      }
     } else if (sel.type === "curve") {
-      // A curve has no fillable bbox; its guide is a dashed copy of the smooth path.
+      // Open curve: dashed copy of the smooth path.
       const cv = document.createElementNS(SVG_NS, "path");
       cv.setAttribute("d", catmullRomPath(sel.points));
       cv.setAttribute("fill", "none");
@@ -561,14 +576,44 @@ function catmullRomPath(pts) {
   return d;
 }
 
-/* ----- curve: Catmull-Rom smooth path through anchors, black stroke, no fill ----- */
+/* ----- Catmull-Rom spline closed loop → SVG cubic Bezier path string + Z ----- */
+function catmullRomClosedPath(pts) {
+  if (!pts || pts.length < 3) return "";
+  const n = pts.length;
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i - 1 + n) % n];
+    const p1 = pts[i];
+    const p2 = pts[(i + 1) % n];
+    const p3 = pts[(i + 2) % n];
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${p2.x} ${p2.y}`;
+  }
+  d += " Z";
+  return d;
+}
+
+/* ----- curve: Catmull-Rom smooth path through anchors ----- */
 function renderCurve(obj) {
+  if (obj.closed === true && (obj.points || []).length >= 3) {
+    const el = document.createElementNS(SVG_NS, "path");
+    el.setAttribute("d", catmullRomClosedPath(obj.points));
+    el.setAttribute("fill", obj.fillNone ? "transparent" : resolveFill(obj));
+    el.setAttribute("stroke", grayHex(obj.strokeLevel));
+    el.setAttribute("stroke-width", obj.strokeWidth);
+    applyDash(el, obj);
+    if (obj.id) el.dataset.id = obj.id;
+    return el;
+  }
   const el = document.createElementNS(SVG_NS, "path");
   el.setAttribute("d", catmullRomPath(obj.points));
   el.setAttribute("fill", "none");
   el.setAttribute("stroke", grayHex(obj.strokeLevel));
   el.setAttribute("stroke-width", obj.strokeWidth);
-  applyDash(el, obj); // curve: dashes only this round (no arrowheads)
+  applyDash(el, obj);
   if (obj.id) el.dataset.id = obj.id;
   return el;
 }
@@ -626,10 +671,11 @@ const PAT_DOT_R  = 0.55; // dot radius (mm)
 const PAT_STROKE = 0.35; // cross/hatch mark stroke width (mm)
 
 /* ----- which objects can carry a fill (shared by render + pattern builder) ----- */
-// rect/ellipse/triangle always; a polyline only once it is closed.
+// rect/ellipse/triangle always; a polyline or curve only once it is closed.
 function isFillable(obj) {
   return obj.type === "rect" || obj.type === "ellipse" || obj.type === "triangle"
-      || (obj.type === "polyline" && obj.closed === true);
+      || (obj.type === "polyline" && obj.closed === true)
+      || (obj.type === "curve"    && obj.closed === true);
 }
 
 /* ----- resolve an object's fill attribute (DESIGN 5-3: empty still clickable) ----- */
@@ -773,12 +819,13 @@ function renderHandles(sel, scene, zoom, activeTool) {
     g.appendChild(r);
   };
 
-  const _closedPoly = sel.type === "polyline" && sel.closed === true;
-  if (sel.type === "rect" || sel.type === "ellipse" || sel.type === "triangle" || _closedPoly) {
-    // Closed polyline reuses branch-A handles on its (axis-aligned) points bbox;
-    // it has no x/y/w/h or rotation field, so derive the box and pin deg to 0.
+  const _closedPoly  = sel.type === "polyline" && sel.closed === true;
+  const _closedCurve = sel.type === "curve"    && sel.closed === true;
+  if (sel.type === "rect" || sel.type === "ellipse" || sel.type === "triangle" || _closedPoly || _closedCurve) {
+    // Closed polyline/curve reuses branch-A handles on its (axis-aligned) points bbox;
+    // neither has x/y/w/h or rotation field, so derive the box and pin deg to 0.
     let x, y, w, h, deg;
-    if (_closedPoly) {
+    if (_closedPoly || _closedCurve) {
       const bb = singleObjBBox(sel, scene);
       ({ x, y, w, h } = bb);
       deg = 0;
@@ -850,7 +897,7 @@ function renderHandles(sel, scene, zoom, activeTool) {
   } else if (sel.type === "line") {
     makeHandle(sel.p1.x, sel.p1.y, "p0");
     makeHandle(sel.p2.x, sel.p2.y, "p1");
-  } else if (sel.type === "polyline" || sel.type === "curve") {
+  } else if ((sel.type === "polyline" || sel.type === "curve") && !sel.closed) {
     sel.points.forEach((p, i) => makeHandle(p.x, p.y, `p${i}`));
   }
   // text: no handles

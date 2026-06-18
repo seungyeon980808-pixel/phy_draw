@@ -7,15 +7,38 @@
 //   4. init tools (tool selection + the rectangle draw pipeline).
 
 // ?v= matches index.html so a version bump reloads every module, not just main.
-import { state } from "./state.js?v=0.11.1";
-import { render } from "./render.js?v=0.11.1";
-import { initViewport, getZoom, screenToWorld } from "./viewport.js?v=0.11.1";
-import { initTools } from "./tools.js?v=0.11.1";
-import { initTransform } from "./transform.js?v=0.11.1";
-import { initInspector } from "./inspector.js?v=0.11.1";
+import { state } from "./state.js?v=0.12.1";
+import { render } from "./render.js?v=0.12.1";
+import { initViewport, getZoom, screenToWorld } from "./viewport.js?v=0.12.1";
+import { initTools } from "./tools.js?v=0.12.1";
+import { initTransform } from "./transform.js?v=0.12.1";
+import { initInspector } from "./inspector.js?v=0.12.1";
 
 const svg = document.getElementById("canvas");
 const zoomReadout = document.getElementById("zoom-readout");
+
+/* ===== THEME TOGGLE (dark/light; persisted in localStorage 'theme') ===== */
+(function initTheme() {
+  const root = document.documentElement;
+  const saved = localStorage.getItem("theme");
+  root.setAttribute("data-theme", saved === "light" || saved === "dark" ? saved : "dark");
+
+  const btn = document.getElementById("theme-toggle");
+  function syncIcon() {
+    // show the action's target: ☀ = switch to light, 🌙 = switch to dark
+    if (btn) btn.textContent = root.getAttribute("data-theme") === "dark" ? "☀" : "🌙";
+  }
+  syncIcon();
+
+  if (btn) {
+    btn.addEventListener("click", () => {
+      const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+      root.setAttribute("data-theme", next);
+      localStorage.setItem("theme", next);
+      syncIcon();
+    });
+  }
+})();
 
 /* ----- projection of viewBox onto the SVG element ----- */
 function applyViewBox(s) {

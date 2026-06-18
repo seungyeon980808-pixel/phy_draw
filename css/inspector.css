@@ -1,20 +1,20 @@
 /* ===== INSPECTOR PANEL ===== */
 
 :root {
-  --insp-bg: #f6f8fa;
-  --insp-field-bg: #ffffff;
-  --insp-border: #d0d7de;
-  --insp-text: #0d1117;
-  --insp-label: #57606a;
-  --insp-header: #0d1117;
-  --insp-accent: #0969da;
+  --insp-bg: var(--bg-panel);
+  --insp-field-bg: var(--bg-input);
+  --insp-border: var(--border);
+  --insp-text: var(--text-primary);
+  --insp-label: var(--text-secondary);
+  --insp-header: var(--text-primary);
+  --insp-accent: var(--accent);
   --insp-radius: 3px;
 }
 
 .panel-right {
-  width: 220px;
+  width: var(--panel-right-w);
   min-width: 200px;
-  max-width: 400px;
+  max-width: 480px;
   flex-shrink: 0;
   border-left: 1px solid var(--insp-border);
   overflow-y: auto;
@@ -85,7 +85,7 @@
 }
 
 .insp-summary:hover {
-  background: rgba(0, 0, 0, 0.04);
+  background: rgba(128, 128, 128, 0.15);
 }
 
 .insp-summary::-webkit-details-marker { display: none; }
@@ -123,8 +123,11 @@ details[open] > .insp-summary::before {
   text-align: right;
 }
 
+/* 크기·위치 number fields: fixed-width, pushed to the right of the label */
 .insp-input {
-  flex: 1;
+  flex: 0 0 auto;
+  width: 72px;
+  margin-left: auto;
   font-size: 11px;
   color: var(--insp-text);
   background: var(--insp-field-bg);

@@ -11,7 +11,7 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getZoom } from "./viewport.js?v=0.11.1";
+import { screenToWorld, getZoom } from "./viewport.js?v=0.12.0";
 
 // Default look until the inspector exists (DESIGN §3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.5; // world units (≈0.5mm on the 100mm artboard)
@@ -22,6 +22,9 @@ const TEXT_EDITOR_PX = 14; // on-screen px of the text editor (matches .text-edi
 // A closed polyline keeps branch-B storage (point array) but takes branch-A
 // (face) interaction — selectable by interior, ratio-resizable, rotatable.
 function isClosedPoly(o) { return o && o.type === "polyline" && o.closed === true; }
+// A closed curve follows the SAME pattern: branch-B storage (anchor array) +
+// branch-A (face) interaction. The gap is closed with a smooth curved span.
+function isClosedCurve(o) { return o && o.type === "curve" && o.closed === true; }
 
 let _svg = null;
 let _state = null;
@@ -452,8 +455,29 @@ function hitTest(objects, p, tol = 0) {
         if (segDist(p.x, p.y, pts[0].x, pts[0].y, pts[1].x, pts[1].y) <= margin) return o.id;
         continue;
       }
-      // Sample each Catmull-Rom Bezier segment to get fine-grained hit detection.
       const SAMPLES = 12;
+      // A CLOSED curve behaves like a face: sample EVERY span (incl. the closing
+      // last→first span) finely into a polygon approximation, then accept an
+      // interior click via point-in-polygon. The on-curve outline still hits too.
+      if (isClosedCurve(o) && pts.length >= 3) {
+        const poly = [];
+        let hit = false;
+        for (let k = 0; k < pts.length; k++) {
+          const seg = curveBezierSegClosed(pts, k);
+          let prev = { x: seg.sx, y: seg.sy };
+          poly.push(prev);
+          for (let s = 1; s <= SAMPLES; s++) {
+            const cur = evalBezier(seg, s / SAMPLES);
+            if (segDist(p.x, p.y, prev.x, prev.y, cur.x, cur.y) <= margin) hit = true;
+            poly.push(cur);
+            prev = cur;
+          }
+        }
+        if (hit) return o.id;
+        if (pointInPolygon(p.x, p.y, poly)) return o.id;
+        continue;
+      }
+      // OPEN curve: sample each Catmull-Rom Bezier segment for fine outline hits.
       let hit = false;
       for (let k = 0; k < pts.length - 1 && !hit; k++) {
         const seg = curveBezierSeg(pts, k);
@@ -656,6 +680,11 @@ function makeCurve(points) {
     arrowHead: "none",     // schema-common; curve excluded from arrowheads for now
     dashLength: 0,         // world units (mm); 0 = solid (no dasharray)
     dashGap: 0,            // world units (mm); 0 = solid
+    // ----- closed-fill props: a closed curve behaves like a fillable shape -----
+    closed: false,         // false = open <path>; true = smoothly-closed filled <path>
+    fillLevel: 214,        // mark/solid shade when closed
+    fillNone: false,
+    fillStyle: "solid",    // "solid" | "dots" | "cross" | "hatch"
     locked: false,
     layerId: 1,
     order: 0,
@@ -669,6 +698,23 @@ function curveBezierSeg(pts, i) {
   const p1 = pts[i];
   const p2 = pts[i + 1];
   const p3 = pts[Math.min(i + 2, n - 1)];
+  return {
+    sx: p1.x, sy: p1.y,
+    cp1x: p1.x + (p2.x - p0.x) / 6, cp1y: p1.y + (p2.y - p0.y) / 6,
+    cp2x: p2.x - (p3.x - p1.x) / 6, cp2y: p2.y - (p3.y - p1.y) / 6,
+    ex: p2.x, ey: p2.y,
+  };
+}
+
+/* ----- closed-curve Bezier control points for span i → i+1 (indices wrap) ----- */
+// The closing span (last → first) is span i = n-1; neighbors wrap modulo n so the
+// whole loop stays smooth, mirroring render's catmullRomClosedPath.
+function curveBezierSegClosed(pts, i) {
+  const n = pts.length;
+  const p0 = pts[(i - 1 + n) % n];
+  const p1 = pts[i];
+  const p2 = pts[(i + 1) % n];
+  const p3 = pts[(i + 2) % n];
   return {
     sx: p1.x, sy: p1.y,
     cp1x: p1.x + (p2.x - p0.x) / 6, cp1y: p1.y + (p2.y - p0.y) / 6,

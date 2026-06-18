@@ -1,10 +1,46 @@
-/* ===== TOKENS (CLAUDE.md signature colors) ===== */
+/* ===== THEME TOKENS (dark = default, light = opt-in via data-theme) ===== */
+:root[data-theme="dark"] {
+  --bg-app: #1e1e1e;
+  --bg-panel: #2c2c2c;
+  --bg-panel-hover: #383838;
+  --bg-canvas: #3a3a3a;
+  --bg-input: #1e1e1e;
+  --border: #444444;
+  --text-primary: #e8e8e8;
+  --text-secondary: #999999;
+  --text-label: #bbbbbb;
+  --accent: #0d99ff;
+  --accent-hover: #1aa3ff;
+  --btn-tool-active: #0d99ff;
+  --btn-tool-bg: transparent;
+  --btn-tool-hover: #383838;
+  --scrollbar-thumb: #555555;
+}
+
+:root[data-theme="light"] {
+  --bg-app: #f0f0f0;
+  --bg-panel: #ffffff;
+  --bg-panel-hover: #f5f5f5;
+  --bg-canvas: #e8e8e8;
+  --bg-input: #ffffff;
+  --border: #d0d0d0;
+  --text-primary: #1a1a1a;
+  --text-secondary: #888888;
+  --text-label: #555555;
+  --accent: #0969da;
+  --accent-hover: #0860ca;
+  --btn-tool-active: #0969da;
+  --btn-tool-bg: transparent;
+  --btn-tool-hover: #e0e0e0;
+  --scrollbar-thumb: #bbbbbb;
+}
+
+/* ===== TOKENS (legacy aliases → resolve against the active theme) ===== */
 :root {
-  --c-main: #0969da;   /* GitHub Blue  */
-  --c-sub: #0e7490;    /* Slate Teal   */
-  --c-bg: #f6f8fa;     /* background   */
-  --c-text: #0d1117;   /* text         */
-  --c-border: #d0d7de; /* divider      */
+  --c-main: var(--accent);
+  --c-sub: var(--text-label);
+  --c-text: var(--text-primary);
+  --c-border: var(--border);
 
   --panel-left-w: 200px;
   --panel-right-w: 260px;
@@ -14,6 +50,12 @@
 /* ===== RESET / BASE ===== */
 * { box-sizing: border-box; }
 
+/* themed scrollbars */
+* { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+
 html, body {
   margin: 0;
   height: 100%;
@@ -22,7 +64,7 @@ html, body {
 body {
   font-family: "IBM Plex Sans KR", system-ui, sans-serif;
   color: var(--c-text);
-  background: var(--c-bg);
+  background: var(--bg-app);
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -33,7 +75,7 @@ body {
 .app {
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: var(--panel-left-w) 1fr var(--panel-right-w);
+  grid-template-columns: var(--panel-left-w) 1fr auto;
   min-height: 0; /* allow children to shrink */
 }
 
@@ -44,7 +86,7 @@ body {
 
 .panel-left,
 .panel-right {
-  background: #fff;
+  background: var(--bg-panel);
   padding: 12px;
   overflow: auto;
 }
@@ -61,7 +103,7 @@ body {
 
 .placeholder {
   font-size: 12px;
-  color: #6e7781;
+  color: var(--text-secondary);
   line-height: 1.5;
 }
 
@@ -81,13 +123,13 @@ body {
   font-family: inherit;
   font-size: 13px;
   color: var(--c-text);
-  background: #fff;
+  background: var(--btn-tool-bg);
   border: 1px solid var(--c-border);
   border-radius: 6px;
   padding: 4px;
   cursor: pointer;
 }
-.tool-btn:hover { background: var(--c-bg); }
+.tool-btn:hover { background: var(--btn-tool-hover); }
 
 .tool-btn kbd {
   display: inline-flex;
@@ -95,8 +137,8 @@ body {
   justify-content: center;
   font-family: "IBM Plex Mono", monospace;
   font-size: 11px;
-  color: #6e7781;
-  background: var(--c-bg);
+  color: var(--text-secondary);
+  background: var(--bg-panel-hover);
   border: 1px solid var(--c-border);
   border-radius: 4px;
   padding: 3px;
@@ -113,8 +155,8 @@ body {
 /* active tool = signature blue (mirrors state.activeTool) */
 .tool-btn.is-active {
   color: #fff;
-  background: var(--c-main);
-  border-color: var(--c-main);
+  background: var(--btn-tool-active);
+  border-color: var(--btn-tool-active);
 }
 .tool-btn.is-active kbd {
   color: #fff;
@@ -126,7 +168,7 @@ body {
 .panel-center {
   display: flex;
   flex-direction: column;
-  background: var(--c-bg);
+  background: var(--bg-canvas);
   min-height: 0;
 }
 
@@ -136,7 +178,7 @@ body {
   gap: 12px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--c-border);
-  background: #fff;
+  background: var(--bg-panel);
 }
 
 .btn {
@@ -149,12 +191,12 @@ body {
   padding: 6px 10px;
   cursor: pointer;
 }
-.btn:hover { background: #0860c9; }
+.btn:hover { background: var(--accent-hover); }
 .btn:active { background: #0757b0; }
 
 .hint {
   font-size: 11px;
-  color: #6e7781;
+  color: var(--text-secondary);
 }
 
 .zoom-readout {
@@ -163,6 +205,20 @@ body {
   font-size: 12px;
   color: var(--c-sub);
 }
+
+/* theme toggle (sits at the far right of the canvas toolbar) */
+.theme-toggle {
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: var(--btn-tool-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.theme-toggle:hover { background: var(--btn-tool-hover); }
 
 .canvas-wrap {
   flex: 1 1 auto;
@@ -176,7 +232,7 @@ body {
   width: 100%;
   height: 100%;
   display: block;
-  background: #f0f0f0;
+  background: var(--bg-canvas);
   /* cursor hints for pan are set from viewport.js */
 }
 #canvas.is-panning { cursor: grabbing; }
@@ -186,8 +242,9 @@ body {
 .text-editor-overlay {
   position: absolute;
   z-index: 100;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1.5px solid var(--c-main, #0969da);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1.5px solid var(--accent);
   border-radius: 2px;
   padding: 2px 4px;
   font-family: "IBM Plex Sans KR", sans-serif;
@@ -207,8 +264,8 @@ body {
   align-items: center;
   justify-content: center;
   font-size: 11px;
-  color: #6e7781;
-  background: #fff;
+  color: var(--text-secondary);
+  background: var(--bg-panel);
   border-top: 1px solid var(--c-border);
 }
 .app-footer strong { color: var(--c-sub); font-weight: 500; }

@@ -137,7 +137,7 @@ export function initInspector(state) {
       const startX = e.clientX;
       const startW = panelRight.offsetWidth;
       function onMove(e2) {
-        const newW = Math.min(400, Math.max(200, startW + (startX - e2.clientX)));
+        const newW = Math.min(480, Math.max(200, startW + (startX - e2.clientX)));
         panelRight.style.width = newW + "px";
       }
       function onUp() {
@@ -381,7 +381,7 @@ export function initInspector(state) {
     const val = closeCb.checked;
     state.update((s2) => {
       const o = s2.objects.find((o) => o.id === ids[0]);
-      if (o && o.type === "polyline") {
+      if (o && (o.type === "polyline" || o.type === "curve")) {
         s2.undoStack.push(snap);
         s2.redoStack = [];
         o.closed = val;
@@ -909,16 +909,18 @@ export function initInspector(state) {
     sec1.style.display = "";
     const isLineFamily = LINE_TYPES.includes(obj.type);
 
-    // 채우기 섹션 표시 규칙: rect/ellipse/triangle + 닫힌 polyline만 노출.
-    // 숨김: line / 열린 polyline / curve / text. (닫힌 polyline은 채울 수 있다.)
-    const isClosedPoly = obj.type === "polyline" && obj.closed === true;
-    const showFill = SHAPE_TYPES.includes(obj.type) || isClosedPoly;
+    // 채우기 섹션 표시 규칙: rect/ellipse/triangle + 닫힌 polyline + 닫힌 curve만 노출.
+    const isClosedPoly  = obj.type === "polyline" && obj.closed === true;
+    const isClosedCurve = obj.type === "curve"    && obj.closed === true;
+    const showFill = SHAPE_TYPES.includes(obj.type) || isClosedPoly || isClosedCurve;
     sec2.style.display = showFill ? "" : "none";
 
-    // 닫기 토글: 단일 polyline 선택 시에만 노출(열림/닫힘 모두).
+    // 닫기 토글: polyline 또는 curve 선택 시 노출(열림/닫힘 모두).
     const isPolyline = obj.type === "polyline";
-    closeRow.style.display = isPolyline ? "" : "none";
-    if (isPolyline) closeCb.checked = obj.closed === true;
+    const isCurve    = obj.type === "curve";
+    const showClose  = isPolyline || isCurve;
+    closeRow.style.display = showClose ? "" : "none";
+    if (showClose) closeCb.checked = obj.closed === true;
 
     // Arrow head: open line + open polyline (closed polyline = filled shape, no arrow).
     const showArrow = obj.type === "line" || (obj.type === "polyline" && !isClosedPoly);
