@@ -11,7 +11,7 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld } from "./viewport.js?v=0.10.0";
+import { screenToWorld } from "./viewport.js?v=0.11.0";
 
 // Default look until the inspector exists (DESIGN §3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.5; // world units (≈0.5mm on the 100mm artboard)
@@ -562,6 +562,7 @@ function makeShape(type, a, b) {
     strokeWidth: DEFAULT_STROKE_WIDTH,
     fillLevel: 214,
     fillNone: false,
+    fillStyle: "solid",   // "solid" | "dots" | "cross" | "hatch"
     locked: false,
     layerId: 1,
     order: 0,              // assigned on commit (z-order within layer)
@@ -606,6 +607,11 @@ function makePolyline(points) {
     arrowHead: "none",     // "none" | "end" | "both" | "center"
     dashLength: 0,         // world units (mm); 0 = solid (no dasharray)
     dashGap: 0,            // world units (mm); 0 = solid
+    // ----- closed-fill props: a closed polyline behaves like a fillable shape -----
+    closed: false,         // false = open <polyline>; true = filled <polygon>
+    fillLevel: 214,        // mark/solid shade when closed
+    fillNone: false,
+    fillStyle: "solid",    // "solid" | "dots" | "cross" | "hatch"
     locked: false,
     layerId: 1,
     order: 0,              // assigned on commit (z-order within layer)

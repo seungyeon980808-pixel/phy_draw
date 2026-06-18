@@ -7,12 +7,12 @@
 //   4. init tools (tool selection + the rectangle draw pipeline).
 
 // ?v= matches index.html so a version bump reloads every module, not just main.
-import { state } from "./state.js?v=0.10.0";
-import { render } from "./render.js?v=0.10.0";
-import { initViewport, getZoom, screenToWorld } from "./viewport.js?v=0.10.0";
-import { initTools } from "./tools.js?v=0.10.0";
-import { initTransform } from "./transform.js?v=0.10.0";
-import { initInspector } from "./inspector.js?v=0.10.0";
+import { state } from "./state.js?v=0.11.0";
+import { render } from "./render.js?v=0.11.0";
+import { initViewport, getZoom, screenToWorld } from "./viewport.js?v=0.11.0";
+import { initTools } from "./tools.js?v=0.11.0";
+import { initTransform } from "./transform.js?v=0.11.0";
+import { initInspector } from "./inspector.js?v=0.11.0";
 
 const svg = document.getElementById("canvas");
 const zoomReadout = document.getElementById("zoom-readout");

@@ -359,6 +359,36 @@ export function initInspector(state) {
   dashSliders.appendChild(dashGapSlider.el);
   sec1Body.appendChild(dashSliders);
 
+  // ---- 닫기 toggle (single polyline only): off = open <polyline>, on = filled <polygon>.
+  // Turning it on flips obj.closed; populate() then reveals the 채우기 section.
+  const closeRow = document.createElement("div");
+  closeRow.className = "insp-row";
+  const closeCb = document.createElement("input");
+  closeCb.type = "checkbox";
+  closeCb.className = "insp-cb";
+  const closeLbl = document.createElement("label");
+  closeLbl.className = "insp-field-label";
+  closeLbl.textContent = "닫기";
+  closeRow.appendChild(closeCb);
+  closeRow.appendChild(closeLbl);
+  sec1Body.appendChild(closeRow);
+
+  closeCb.addEventListener("change", () => {
+    const s = state.get();
+    const ids = s.selectedIds || [];
+    if (ids.length !== 1) return;
+    const snap = snapBefore();
+    const val = closeCb.checked;
+    state.update((s2) => {
+      const o = s2.objects.find((o) => o.id === ids[0]);
+      if (o && o.type === "polyline") {
+        s2.undoStack.push(snap);
+        s2.redoStack = [];
+        o.closed = val;
+      }
+    });
+  });
+
   // Highlight the active preset button (or none, for a custom slider value).
   function syncDashControls(obj) {
     const dl = obj.dashLength ?? 0;
@@ -484,6 +514,58 @@ export function initInspector(state) {
     () => { pushSnap(_fillSnap); _fillSnap = null; }
   );
   sec2Body.appendChild(fillCP.el);
+
+  // ---- fill style selector: 색(solid) / 도트(dots) / 엑스(cross) / 헤칭(hatch) ----
+  // fillLevel (shade) still applies — patterns use it as their mark color.
+  const fsRow = document.createElement("div");
+  fsRow.className = "insp-row";
+  const fsLbl = document.createElement("label");
+  fsLbl.className = "insp-field-label";
+  fsLbl.textContent = "채우기 종류";
+  const fsBtns = document.createElement("div");
+  fsBtns.style.cssText = "display:flex;gap:4px;flex-wrap:wrap;";
+  const FILL_STYLE_OPTIONS = [
+    { label: "색",   value: "solid" },
+    { label: "도트", value: "dots"  },
+    { label: "엑스", value: "cross" },
+    { label: "헤칭", value: "hatch" },
+  ];
+  const _fillStyleBtnEls = {};
+  FILL_STYLE_OPTIONS.forEach(({ label, value }) => {
+    const btn = document.createElement("button");
+    btn.textContent = label;
+    btn.style.cssText = "padding:2px 6px;font-size:10px;cursor:pointer;border:1px solid #3a3c41;border-radius:3px;background:#1e1f22;color:#dcddde;";
+    btn.addEventListener("click", () => {
+      const s = state.get();
+      const ids = s.selectedIds || [];
+      if (!ids.length) return;
+      const snap = snapBefore();
+      state.update((s2) => {
+        s2.undoStack.push(snap);
+        s2.redoStack = [];
+        (s2.selectedIds || []).forEach(id => {
+          const o = s2.objects.find((o) => o.id === id);
+          if (o) o.fillStyle = value;
+        });
+      });
+    });
+    _fillStyleBtnEls[value] = btn;
+    fsBtns.appendChild(btn);
+  });
+  fsRow.appendChild(fsLbl);
+  fsRow.appendChild(fsBtns);
+  sec2Body.appendChild(fsRow);
+
+  // Highlight the active fill-style button for the (first) selected object.
+  function syncFillStyle(obj) {
+    const fs = obj.fillStyle ?? "solid";
+    Object.entries(_fillStyleBtnEls).forEach(([val, btn]) => {
+      const active = val === fs;
+      btn.style.background = active ? "#4a9eff" : "#1e1f22";
+      btn.style.color      = active ? "#ffffff" : "#dcddde";
+      btn.style.border     = active ? "1px solid #4a9eff" : "1px solid #3a3c41";
+    });
+  }
 
   fnCb.addEventListener("change", () => {
     const s = state.get();
@@ -740,6 +822,7 @@ export function initInspector(state) {
       arrowRow.style.display = "none";
       dashRow.style.display = "none";
       dashSliders.style.display = "none";
+      closeRow.style.display = "none";
       return;
     }
 
@@ -766,6 +849,7 @@ export function initInspector(state) {
       arrowRow.style.display = "none";
       dashRow.style.display = "none";
       dashSliders.style.display = "none";
+      closeRow.style.display = "none";
 
       if (_dragging) return;
 
@@ -778,6 +862,7 @@ export function initInspector(state) {
       fnCb.checked = _fn;
       fillCP.setValue(firstObj.fillLevel ?? 255);
       fillCP.setDisabled(_fn);
+      syncFillStyle(firstObj);
       return;
     }
 
@@ -792,6 +877,7 @@ export function initInspector(state) {
       arrowRow.style.display = "none";
       dashRow.style.display = "none";
       dashSliders.style.display = "none";
+      closeRow.style.display = "none";
 
       if (_dragging) return;
 
@@ -806,6 +892,7 @@ export function initInspector(state) {
       fnCb.checked = fn;
       fillCP.setValue(firstObj.fillLevel ?? 255);
       fillCP.setDisabled(fn);
+      syncFillStyle(firstObj);
       return;
     }
 
@@ -820,12 +907,21 @@ export function initInspector(state) {
     if (_dragging) return; // skip during color picker drag to avoid handle jump
 
     sec1.style.display = "";
-    // 채우기 섹션은 선 계열(line/polyline/curve)에서 숨긴다.
     const isLineFamily = LINE_TYPES.includes(obj.type);
-    sec2.style.display = isLineFamily ? "none" : "";
 
-    // Arrow head: line + polyline (curve excluded this round).
-    const showArrow = obj.type === "line" || obj.type === "polyline";
+    // 채우기 섹션 표시 규칙: rect/ellipse/triangle + 닫힌 polyline만 노출.
+    // 숨김: line / 열린 polyline / curve / text. (닫힌 polyline은 채울 수 있다.)
+    const isClosedPoly = obj.type === "polyline" && obj.closed === true;
+    const showFill = SHAPE_TYPES.includes(obj.type) || isClosedPoly;
+    sec2.style.display = showFill ? "" : "none";
+
+    // 닫기 토글: 단일 polyline 선택 시에만 노출(열림/닫힘 모두).
+    const isPolyline = obj.type === "polyline";
+    closeRow.style.display = isPolyline ? "" : "none";
+    if (isPolyline) closeCb.checked = obj.closed === true;
+
+    // Arrow head: open line + open polyline (closed polyline = filled shape, no arrow).
+    const showArrow = obj.type === "line" || (obj.type === "polyline" && !isClosedPoly);
     arrowRow.style.display = showArrow ? "" : "none";
     if (showArrow) {
       const ah = obj.arrowHead ?? "none";
@@ -855,6 +951,7 @@ export function initInspector(state) {
     fnCb.checked = fn;
     fillCP.setValue(obj.fillLevel ?? 255);
     fillCP.setDisabled(fn);
+    syncFillStyle(obj);
 
     // Section 3 — shape types only
     const isShape = SHAPE_TYPES.includes(obj.type);

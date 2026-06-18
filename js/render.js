@@ -8,7 +8,7 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom } from "./viewport.js?v=0.10.0";
+import { getZoom } from "./viewport.js?v=0.11.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -29,6 +29,16 @@ export function render(state) {
   // Simplest correct projection: wipe and rebuild. Fine at this scale; a
   // keyed/diffing pass can replace this once object counts grow.
   scene.replaceChildren();
+
+  // ----- per-object fill patterns: regenerated every render into a fresh <defs> -----
+  // (matches the wipe-and-rebuild model — each object's pattern carries its own
+  // fillLevel as the mark color, so different levels never collide).
+  const defs = document.createElementNS(SVG_NS, "defs");
+  scene.appendChild(defs);
+  for (const obj of state.objects) {
+    const pat = makeFillPattern(obj);
+    if (pat) defs.appendChild(pat);
+  }
 
   // ----- artboard: 90mm × 65mm world-space rect, non-interactive, always first -----
   const artboard = document.createElementNS(SVG_NS, "rect");
@@ -102,8 +112,9 @@ export function render(state) {
       ln.style.stroke = _selColor;
       scene.appendChild(ln);
     } else if (sel.type === "polyline") {
-      // A polyline has no fillable bbox; its guide is a dashed copy of the path.
-      const pl = document.createElementNS(SVG_NS, "polyline");
+      // Guide is a dashed copy of the path; closed polylines close their guide too.
+      const _closed = sel.closed === true;
+      const pl = document.createElementNS(SVG_NS, _closed ? "polygon" : "polyline");
       pl.setAttribute("points", sel.points.map((p) => `${p.x},${p.y}`).join(" "));
       pl.setAttribute("fill", "none");
       pl.setAttribute("stroke-width", "0.4"); // world units
@@ -243,8 +254,8 @@ function renderRect(obj) {
   r.setAttribute("width", obj.w);
   r.setAttribute("height", obj.h);
 
-  // fillNone → transparent fill: invisible but still receives clicks (DESIGN 5-3).
-  r.setAttribute("fill", obj.fillNone ? "transparent" : grayHex(obj.fillLevel));
+  // Fill: transparent (none) / solid gray / pattern url — still clicks (DESIGN 5-3).
+  r.setAttribute("fill", resolveFill(obj));
   // strokeLevel 0 = black (DESIGN 2-2). stroke-width is in world units.
   r.setAttribute("stroke", grayHex(obj.strokeLevel));
   r.setAttribute("stroke-width", obj.strokeWidth);
@@ -266,8 +277,8 @@ function renderEllipse(obj) {
   el.setAttribute("rx", obj.w / 2);
   el.setAttribute("ry", obj.h / 2);
 
-  // fillNone → transparent fill: invisible but still receives clicks (DESIGN 5-3).
-  el.setAttribute("fill", obj.fillNone ? "transparent" : grayHex(obj.fillLevel));
+  // Fill: transparent (none) / solid gray / pattern url — still clicks (DESIGN 5-3).
+  el.setAttribute("fill", resolveFill(obj));
   el.setAttribute("stroke", grayHex(obj.strokeLevel));
   el.setAttribute("stroke-width", obj.strokeWidth);
 
@@ -299,8 +310,8 @@ function renderTriangle(obj) {
   }
   el.setAttribute("points", pts);
 
-  // fillNone → transparent fill: invisible but still receives clicks (DESIGN 5-3).
-  el.setAttribute("fill", obj.fillNone ? "transparent" : grayHex(obj.fillLevel));
+  // Fill: transparent (none) / solid gray / pattern url — still clicks (DESIGN 5-3).
+  el.setAttribute("fill", resolveFill(obj));
   el.setAttribute("stroke", grayHex(obj.strokeLevel));
   el.setAttribute("stroke-width", obj.strokeWidth);
 
@@ -440,11 +451,25 @@ function renderLine(obj) {
 //   center = 50% path-length point, pointing along travel direction
 // The arrow-bearing END SEGMENT is retracted by the arrow length, like renderLine.
 function renderPolyline(obj) {
-  const arrowHead = obj.arrowHead ?? "none";
   const sw = obj.strokeWidth;
   const color = grayHex(obj.strokeLevel);
   const pts = obj.points || [];
   const n = pts.length;
+
+  // ----- closed polyline: a filled <polygon> (fillable like rect/ellipse/triangle) -----
+  // Arrowheads don't apply to a closed shape; it just takes the shared fill + dash.
+  if (obj.closed === true) {
+    const poly = document.createElementNS(SVG_NS, "polygon");
+    poly.setAttribute("points", pts.map((p) => `${p.x},${p.y}`).join(" "));
+    poly.setAttribute("fill", resolveFill(obj));
+    poly.setAttribute("stroke", color);
+    poly.setAttribute("stroke-width", sw);
+    applyDash(poly, obj);
+    if (obj.id) poly.dataset.id = obj.id;
+    return poly;
+  }
+
+  const arrowHead = obj.arrowHead ?? "none";
 
   // Unit directions of the first/last segments (for arrow placement + retraction).
   let endDir = null, startDir = null;
@@ -575,6 +600,82 @@ function grayHex(level = 0) {
   const v = Math.max(0, Math.min(255, Math.round(level)));
   const h = v.toString(16).padStart(2, "0");
   return `#${h}${h}${h}`;
+}
+
+/* ===== FILL PATTERNS (grayscale only — mark color = grayHex(obj.fillLevel)) ===== */
+// Tile size / dot radius / mark stroke are fixed world-unit (mm) values, cheap to
+// tune. Patterns are per-object (id = pat_{obj.id}) and rebuilt every render, so a
+// different fillLevel per object never collides.
+const PAT_TILE   = 3.2;  // pattern tile edge (mm)
+const PAT_DOT_R  = 0.55; // dot radius (mm)
+const PAT_STROKE = 0.35; // cross/hatch mark stroke width (mm)
+
+/* ----- which objects can carry a fill (shared by render + pattern builder) ----- */
+// rect/ellipse/triangle always; a polyline only once it is closed.
+function isFillable(obj) {
+  return obj.type === "rect" || obj.type === "ellipse" || obj.type === "triangle"
+      || (obj.type === "polyline" && obj.closed === true);
+}
+
+/* ----- resolve an object's fill attribute (DESIGN 5-3: empty still clickable) ----- */
+//   fillNone            → "transparent"
+//   fillStyle "solid"   → grayHex(fillLevel)
+//   otherwise (pattern) → url(#pat_{id})
+function resolveFill(obj) {
+  if (obj.fillNone) return "transparent";
+  const style = obj.fillStyle ?? "solid";
+  if (style === "solid" || !obj.id) return grayHex(obj.fillLevel);
+  return `url(#pat_${obj.id})`;
+}
+
+/* ----- build a <pattern> for one object, or null when it needs no pattern ----- */
+// Each tile starts with a fill="transparent" base rect so the empty area between
+// marks still captures clicks (DESIGN 5-3), exactly like a transparent solid fill.
+function makeFillPattern(obj) {
+  const style = obj.fillStyle ?? "solid";
+  if (!obj.id || obj.fillNone || style === "solid" || !isFillable(obj)) return null;
+
+  const mark = grayHex(obj.fillLevel);
+  const pat = document.createElementNS(SVG_NS, "pattern");
+  pat.setAttribute("id", `pat_${obj.id}`);
+  pat.setAttribute("patternUnits", "userSpaceOnUse");
+  pat.setAttribute("width", PAT_TILE);
+  pat.setAttribute("height", PAT_TILE);
+
+  const base = document.createElementNS(SVG_NS, "rect");
+  base.setAttribute("width", PAT_TILE);
+  base.setAttribute("height", PAT_TILE);
+  base.setAttribute("fill", "transparent");
+  pat.appendChild(base);
+
+  const line = (x1, y1, x2, y2) => {
+    const l = document.createElementNS(SVG_NS, "line");
+    l.setAttribute("x1", x1); l.setAttribute("y1", y1);
+    l.setAttribute("x2", x2); l.setAttribute("y2", y2);
+    l.setAttribute("stroke", mark);
+    l.setAttribute("stroke-width", PAT_STROKE);
+    pat.appendChild(l);
+  };
+
+  if (style === "dots") {
+    const c = document.createElementNS(SVG_NS, "circle");
+    c.setAttribute("cx", PAT_TILE / 2);
+    c.setAttribute("cy", PAT_TILE / 2);
+    c.setAttribute("r", PAT_DOT_R);
+    c.setAttribute("fill", mark);
+    pat.appendChild(c);
+  } else if (style === "cross") {
+    const m = PAT_TILE / 2, d = PAT_TILE * 0.22; // ✕ arm half-length
+    line(m - d, m - d, m + d, m + d);
+    line(m - d, m + d, m + d, m - d);
+  } else if (style === "hatch") {
+    // 45° parallel lines. The main anti-diagonal tiles seamlessly; the two
+    // half-corner segments fill the seams so the lines read as continuous.
+    line(0, PAT_TILE, PAT_TILE, 0);
+    line(-PAT_TILE / 2, PAT_TILE / 2, PAT_TILE / 2, -PAT_TILE / 2);
+    line(PAT_TILE / 2, PAT_TILE * 1.5, PAT_TILE * 1.5, PAT_TILE / 2);
+  }
+  return pat;
 }
 
 /* ----- selection handles: 7-CSS-px white squares, zoom-invariant (DESIGN 5-2) ----- */
