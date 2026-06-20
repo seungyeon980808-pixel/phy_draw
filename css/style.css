@@ -79,6 +79,13 @@ body {
   min-height: 0; /* allow children to shrink */
 }
 
+.app:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  background: var(--bg-app);
+  overflow: hidden;
+}
+
 .panel {
   min-height: 0;
   min-width: 0;
@@ -109,9 +116,51 @@ body {
 
 /* ===== LEFT PANEL: tool buttons (DESIGN §3) ===== */
 .tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ===== COLLAPSIBLE TOOL SECTIONS ===== */
+.tool-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.tool-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 5px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--c-sub);
+  cursor: pointer;
+  border-bottom: 1px solid var(--c-border);
+  margin-bottom: 6px;
+  user-select: none;
+}
+.tool-section-header:hover { color: var(--c-text); background: var(--btn-tool-hover); border-radius: 4px 4px 0 0; }
+
+.toggle-icon {
+  display: inline-block;
+  transition: transform 0.2s ease;
+  font-style: normal;
+}
+
+.tool-section.is-collapsed .toggle-icon {
+  transform: rotate(-180deg);
+}
+
+.tool-section-body {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 4px;
+}
+
+.tool-section.is-collapsed .tool-section-body {
+  display: none;
 }
 
 .tool-btn {
@@ -212,6 +261,45 @@ body {
   cursor: pointer;
 }
 .topbar-btn:hover { background: var(--btn-tool-hover); }
+
+/* icon-only top-bar buttons (undo/redo): square, centered glyph */
+.topbar-btn.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  padding: 4px;
+  font-size: 16px;
+}
+.topbar-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.topbar-btn:disabled:hover { background: var(--btn-tool-bg); }
+
+.fullscreen-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  padding: 4px;
+}
+.fullscreen-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.fullscreen-toggle[aria-pressed="true"] {
+  color: #fff;
+  background: var(--c-main);
+  border-color: var(--c-main);
+}
 
 /* ===== FILE MENU (파일 ▾ dropdown in the canvas toolbar) ===== */
 .file-menu {
@@ -385,6 +473,23 @@ body {
   position: relative;
 }
 
+.image-placement-hint {
+  position: absolute;
+  top: 36px;
+  left: 50%;
+  z-index: 150;
+  transform: translateX(-50%);
+  padding: 7px 12px;
+  color: #fff;
+  background: rgba(13, 17, 23, 0.82);
+  border-radius: 6px;
+  font-size: 12px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.image-placement-hint[hidden] { display: none; }
+
 /* ===== RULER CONTAINER (CSS grid: corner | h-ruler / v-ruler | canvas) ===== */
 .ruler-container {
   position: absolute;
@@ -432,6 +537,37 @@ body {
   border-right: 1px solid var(--border);
 }
 
+.guide-coordinate-editor {
+  position: absolute;
+  z-index: 120;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 14px;
+  padding: 0 3px;
+  color: #fff;
+  background: #0550ae;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 1px;
+  font: 9px/1 "IBM Plex Mono", monospace;
+  white-space: nowrap;
+  transform-origin: center;
+}
+.guide-coordinate-editor.is-vertical { transform: rotate(-90deg); }
+.guide-coordinate-editor input {
+  width: 42px;
+  min-width: 0;
+  margin: 0 2px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  text-align: center;
+}
+
 #canvas {
   grid-column: 2;
   grid-row: 2;
@@ -447,24 +583,194 @@ body {
 #canvas.space-held { cursor: grab; }
 
 /* ===== TEXT EDITOR OVERLAY (T tool) ===== */
+/* CAPTURE-ONLY overlay: the visible glyphs are drawn by render.js as real SVG
+   <text> (state.draftText) through the SAME path as the committed object, so the
+   draft is exact WYSIWYG. This textarea exists only to receive keystrokes and
+   show the caret — its own text is transparent to avoid double-rendering.
+   font-size/family are set inline (tools.js _syncEditorFont) from the draft. */
 .text-editor-overlay {
   position: absolute;
   z-index: 100;
-  background: var(--bg-input);
-  color: var(--text-primary);
-  border: 1.5px solid var(--accent);
-  border-radius: 2px;
-  padding: 2px 4px;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--accent, #0969da);
+  border: 0;
+  /* Left padding MUST stay 0 so the text origin lines up with getBoundingClientRect().left
+     (the caret-from-click measurement in tools.js depends on it). The right padding adds a
+     clickable zone PAST the last character so the caret can reach text.length; the box is
+     also grown to fit content in JS (_syncEditorWidth). content-box keeps the width math exact. */
+  padding: 0 0.75em 0 0;
+  box-sizing: content-box;
+  margin: 0;
   font-family: "IBM Plex Sans KR", sans-serif;
   font-size: 14px;
-  min-width: 80px;
+  font-weight: 400;
+  line-height: 1.4;
+  min-width: 60px;
+  white-space: pre;
   resize: none;
   outline: none;
-  line-height: 1.4;
   overflow: hidden;
 }
 
+/* ===== TEXT CONTEXT MENU (right-click on text / draft) ===== */
+.text-ctx-menu {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--bg-panel, #2b2d31);
+  border: 1px solid var(--c-border, #3a3c41);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  color: var(--text-label, #dcddde);
+}
+.text-ctx-menu[hidden] { display: none; }
+.text-ctx-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.text-ctx-item:hover { background: var(--accent, #0969da); color: #fff; }
+
+/* ===== FONT SETTINGS MODAL (글꼴 설정) ===== */
+.font-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+.font-modal-overlay[hidden] { display: none; }
+.font-modal {
+  width: 460px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--bg-panel, #2b2d31);
+  border: 1px solid var(--c-border, #3a3c41);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  color: var(--text-label, #dcddde);
+  font-size: 12px;
+}
+.font-modal-header {
+  font-size: 14px;
+  font-weight: 600;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--c-border, #3a3c41);
+}
+.font-modal-body {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 0.9fr;
+  gap: 12px;
+}
+.fm-col { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.fm-label { font-size: 11px; color: var(--text-secondary, #9aa0a6); }
+.fm-list {
+  width: 100%;
+  border: 1px solid var(--c-border, #3a3c41);
+  border-radius: 4px;
+  background: #1e1f22;
+  color: #dcddde;
+  font-size: 12px;
+  padding: 2px;
+}
+.fm-list option { padding: 2px 4px; }
+.fm-size-input {
+  width: 100%;
+  border: 1px solid var(--c-border, #3a3c41);
+  border-radius: 4px;
+  background: #1e1f22;
+  color: #dcddde;
+  font-size: 12px;
+  padding: 3px 5px;
+  text-align: center;
+}
+.fm-effects { display: flex; align-items: center; gap: 16px; }
+.fm-effects label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.fm-preview-wrap { display: flex; flex-direction: column; gap: 5px; }
+.fm-preview {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border: 1px solid var(--c-border, #3a3c41);
+  border-radius: 4px;
+  background: #ffffff;
+  color: #0d1117;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.font-modal-footer { display: flex; justify-content: flex-end; gap: 8px; }
+.fm-btn {
+  padding: 6px 16px;
+  border-radius: 4px;
+  border: 1px solid var(--c-border, #3a3c41);
+  background: #1e1f22;
+  color: #dcddde;
+  font-size: 12px;
+  cursor: pointer;
+}
+.fm-ok { background: var(--accent, #0969da); border-color: var(--accent, #0969da); color: #fff; }
+.fm-btn:hover { filter: brightness(1.1); }
+
+/* ===== CANVAS BOTTOM BAR (grid controls below the SVG canvas) ===== */
+.canvas-bottom-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 5px 12px;
+  border-top: 1px solid var(--c-border);
+  background: var(--bg-panel);
+  font-size: 12px;
+  color: var(--text-label);
+}
+.canvas-bottom-bar label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  user-select: none;
+}
+.canvas-bottom-bar input[type="range"] {
+  width: 72px;
+  accent-color: var(--accent);
+}
+
 /* ===== FOOTER ===== */
+.developer-credit {
+  position: fixed;
+  right: 10px;
+  bottom: 6px;
+  z-index: 100;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.65;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
 .app-footer {
   flex: 0 0 auto;
   height: var(--footer-h);
@@ -476,4 +782,56 @@ body {
   background: var(--bg-panel);
   border-top: 1px solid var(--c-border);
 }
+
+/* ===== STARTUP GUIDANCE MODAL ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+.modal-overlay[hidden] { display: none; }
+
+.modal-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 28px 32px;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 16px 0;
+}
+
+.modal-list {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.7;
+  margin: 0 0 24px 0;
+  padding-left: 20px;
+}
+
+.modal-confirm-btn {
+  display: block;
+  width: 100%;
+  padding: 9px 0;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.modal-confirm-btn:hover { background: var(--accent-hover); }
 .app-footer strong { color: var(--c-sub); font-weight: 500; }

@@ -1,4 +1,4 @@
-﻿/* ===== TRANSFORM (DESIGN 짠3 select-tool MOVE + snapshot-based Undo/Redo) ===== */
+/* ===== TRANSFORM (DESIGN 짠3 select-tool MOVE + snapshot-based Undo/Redo) ===== */
 //
 // Owns two concerns:
 //   1. Body-drag MOVE of the selected object (V tool only).
@@ -13,10 +13,11 @@
 // we can distinguish "click on already-selected ??move allowed" from "click
 // selects a new object ??just select, no move this press."
 
-import { screenToWorld } from "./viewport.js?v=0.16.3";
+import { screenToWorld } from "./viewport.js?v=0.31.2";
 
 /* ----- shared lock guard: locked objects are excluded from mutating ops ----- */
 function isMutable(o) { return o && !o.locked; }
+function isPositionMovable(o) { return isMutable(o) && !o.positionLocked; }
 
 /* ----- closed polyline: branch-B storage (points) + branch-A (face) interaction -----
  * Transforms are BAKED into the point coordinates (no rotation field), so the
@@ -96,7 +97,7 @@ export function rebuildGroups(s) {
   s.groups = Object.entries(map).map(([id, memberIds]) => ({ id, memberIds }));
 }
 
-function undo(state) {
+export function undo(state) {
   if (state.get().undoStack.length === 0) return;
   state.update((s) => {
     const current = cloneObjects(s.objects);
@@ -109,7 +110,7 @@ function undo(state) {
   });
 }
 
-function redo(state) {
+export function redo(state) {
   if (state.get().redoStack.length === 0) return;
   state.update((s) => {
     const current = cloneObjects(s.objects);
@@ -160,13 +161,34 @@ let _rotDidMove      = false;
 
 /* clipboard, mouse position, and arrow-key hold tracking */
 let _clipboard = null;
-let _lastMouseWorld = { x: 0, y: 0 };
+let _lastMouseWorld = null; // latest pointer world coord (set on first mousemove); null until then
 const _arrowKeysHeld = new Set();
+
+/* ----- axis-aligned bbox of a set of (clipboard) objects, in world units -----
+ * Text uses its anchor point as a zero-size box (the clone isn't rendered, so
+ * getBBox is unavailable). Used to center a paste on the mouse. */
+function clipboardBBox(objs) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const acc = (x, y) => { if (x < minX) minX = x; if (y < minY) minY = y; if (x > maxX) maxX = x; if (y > maxY) maxY = y; };
+  for (const o of objs) {
+    if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle" || o.type === "image") {
+      acc(o.x, o.y); acc(o.x + (o.w || 0), o.y + (o.h || 0));
+    } else if (o.type === "text") {
+      acc(o.x, o.y);
+    } else if (o.type === "line") {
+      acc(o.p1.x, o.p1.y); acc(o.p2.x, o.p2.y);
+    } else if (o.type === "polyline" || o.type === "curve") {
+      (o.points || []).forEach((p) => acc(p.x, p.y));
+    }
+  }
+  if (!isFinite(minX)) return null;
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
 
 /* ----- set object position from original + delta (avoids float drift) ----- */
 function applyDelta(obj, orig, dx, dy) {
   if (obj.type === "rect" || obj.type === "ellipse" ||
-      obj.type === "triangle" || obj.type === "text") {
+      obj.type === "triangle" || obj.type === "text" || obj.type === "image") {
     obj.x = orig.x + dx;
     obj.y = orig.y + dy;
   } else if (obj.type === "line") {
@@ -180,7 +202,20 @@ function applyDelta(obj, orig, dx, dy) {
 const MIN_SIZE = 0.3; // world units; minimum w or h after resize
 
 /* ----- apply one handle drag delta to an object ----- */
-function applyHandleDelta(obj, orig, handle, dx, dy, shiftKey) {
+function objectCenter(obj) {
+  if (obj.type === "line") {
+    return { x: (obj.p1.x + obj.p2.x) / 2, y: (obj.p1.y + obj.p2.y) / 2 };
+  }
+  if (obj.type === "polyline" || obj.type === "curve") return polyCenter(obj.points);
+  return { x: obj.x + (obj.w || 0) / 2, y: obj.y + (obj.h || 0) / 2 };
+}
+
+function translateObject(obj, dx, dy) {
+  const orig = JSON.parse(JSON.stringify(obj));
+  applyDelta(obj, orig, dx, dy);
+}
+
+function applyHandleDeltaBase(obj, orig, handle, dx, dy, shiftKey) {
   // Branch B: endpoint handles (line / polyline / curve)
   if (obj.type === "line") {
     if (handle === "p0") {
@@ -271,9 +306,18 @@ function applyHandleDelta(obj, orig, handle, dx, dy, shiftKey) {
   obj.h = h;
 }
 
+/* positionLocked resize uses the original center as its fixed anchor. */
+function applyHandleDelta(obj, orig, handle, dx, dy, shiftKey) {
+  applyHandleDeltaBase(obj, orig, handle, dx, dy, shiftKey);
+  if (!orig.positionLocked) return;
+  const before = objectCenter(orig);
+  const after = objectCenter(obj);
+  translateObject(obj, before.x - after.x, before.y - after.y);
+}
+
 /* ----- world bbox of one object (text uses its rendered <text> box) ----- */
 function objWorldBBox(o, svg) {
-  if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle") {
+  if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle" || o.type === "image") {
     return { x: o.x, y: o.y, w: o.w, h: o.h };
   }
   if (o.type === "text") {
@@ -362,7 +406,7 @@ function applyGroupResize(objs, origObjs, box0, handle, dx, dy) {
   for (const obj of objs) {
     const orig = origObjs[obj.id];
     if (!orig) continue;
-    if (orig.type === "rect" || orig.type === "ellipse" || orig.type === "triangle") {
+    if (orig.type === "rect" || orig.type === "ellipse" || orig.type === "triangle" || orig.type === "image") {
       const p = mapPt(orig.x, orig.y);
       obj.x = p.x; obj.y = p.y; obj.w = orig.w * sx; obj.h = orig.h * sy;
     } else if (orig.type === "text") {
@@ -374,6 +418,11 @@ function applyGroupResize(objs, origObjs, box0, handle, dx, dy) {
       obj.p2 = mapPt(orig.p2.x, orig.p2.y);
     } else if (orig.type === "polyline" || orig.type === "curve") {
       obj.points = orig.points.map((p) => mapPt(p.x, p.y));
+    }
+    if (orig.positionLocked) {
+      const before = objectCenter(orig);
+      const after = objectCenter(obj);
+      translateObject(obj, before.x - after.x, before.y - after.y);
     }
   }
 }
@@ -418,24 +467,26 @@ export function initTransform(svg, state) {
       return;
     }
 
-    // Ctrl+V ??paste clipboard at original position + (1, 1) world unit offset
+    // Ctrl+V ??paste the copied selection CENTERED at the latest mouse world
+    // position (fallback: current viewport center). Relative positions within a
+    // multi-object paste are preserved; every clone gets a fresh id; one undo entry.
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v" && !e.shiftKey) {
       if (!_clipboard || !_clipboard.length) return;
       e.preventDefault();
       const snap = JSON.parse(JSON.stringify(s.objects));
+      // Target = mouse world coord, or viewport center if the mouse is unknown.
+      const target = _lastMouseWorld
+        ? _lastMouseWorld
+        : { x: s.viewBox.x + s.viewBox.w / 2, y: s.viewBox.y + s.viewBox.h / 2 };
+      const bbox = clipboardBBox(_clipboard);
+      const cx = bbox ? bbox.x + bbox.w / 2 : target.x;
+      const cy = bbox ? bbox.y + bbox.h / 2 : target.y;
+      const dx = target.x - cx;
+      const dy = target.y - cy;
       const newObjs = _clipboard.map((src, i) => {
         const newObj = JSON.parse(JSON.stringify(src));
         newObj.id = String(Date.now() + i);
-        if (newObj.type === "rect" || newObj.type === "ellipse" ||
-            newObj.type === "triangle" || newObj.type === "text") {
-          newObj.x += 1;
-          newObj.y += 1;
-        } else if (newObj.type === "line") {
-          newObj.p1 = { x: newObj.p1.x + 1, y: newObj.p1.y + 1 };
-          newObj.p2 = { x: newObj.p2.x + 1, y: newObj.p2.y + 1 };
-        } else if (newObj.type === "polyline" || newObj.type === "curve") {
-          newObj.points = newObj.points.map((p) => ({ x: p.x + 1, y: p.y + 1 }));
-        }
+        applyDelta(newObj, src, dx, dy); // handles every shape type incl. image
         return newObj;
       });
       state.update((s2) => {
@@ -468,6 +519,8 @@ export function initTransform(svg, state) {
       if (!selectedIds.length) return;
       e.preventDefault();
       if (s.activeTool === "rotate") {
+        const selected = selectedIds.map(id => s.objects.find((o) => o.id === id)).filter(Boolean);
+        if (selected.some((o) => !isMutable(o))) return;
         const snap = JSON.parse(JSON.stringify(s.objects));
         const flipAxis = (e.key === "ArrowLeft" || e.key === "ArrowRight") ? "flipX" : "flipY";
         state.update((s2) => {
@@ -486,6 +539,8 @@ export function initTransform(svg, state) {
         return;
       }
       const nudge = e.ctrlKey ? 5 : 0.5;
+      const selected = selectedIds.map(id => s.objects.find((o) => o.id === id)).filter(Boolean);
+      if (selected.some((o) => !isPositionMovable(o))) return;
       const dx = e.key === "ArrowLeft" ? -nudge : e.key === "ArrowRight" ? nudge : 0;
       const dy = e.key === "ArrowUp"   ? -nudge : e.key === "ArrowDown"  ? nudge : 0;
       const isFirst = !_arrowKeysHeld.has(e.key);
@@ -496,7 +551,7 @@ export function initTransform(svg, state) {
         if (snap) { s2.undoStack.push(snap); s2.redoStack = []; }
         ids.forEach(id => {
           const obj = s2.objects.find((o) => o.id === id);
-          if (!isMutable(obj)) return; // locked objects are not nudged
+          if (!isPositionMovable(obj)) return;
           const orig = JSON.parse(JSON.stringify(obj));
           applyDelta(obj, orig, dx, dy);
         });
@@ -509,6 +564,8 @@ export function initTransform(svg, state) {
       if (!selectedIds.length) return;
       e.preventDefault();
       if (s.activeTool === "rotate") {
+        const selected = selectedIds.map(id => s.objects.find((o) => o.id === id)).filter(Boolean);
+        if (selected.some((o) => !isMutable(o))) return;
         const snap = JSON.parse(JSON.stringify(s.objects));
         // Whole-group rotation: when every selected object shares one groupId,
         // rotate all members about the COMBINED bbox center (group pivot) instead
@@ -519,7 +576,7 @@ export function initTransform(svg, state) {
           ? gFirst.groupId : null;
         if (gGid) {
           const members = selectedIds.map((id) => s.objects.find((o) => o.id === id)).filter(Boolean);
-          if (members.some((o) => o.locked)) return; // a locked member blocks the gesture
+          if (members.some((o) => !isMutable(o))) return;
           const box0 = groupBBox(members, svg);
           if (box0) {
             const px = box0.x + box0.w / 2, py = box0.y + box0.h / 2;
@@ -588,6 +645,8 @@ export function initTransform(svg, state) {
       if (!selectedIds.length) return;
       e.preventDefault();
       if (s.activeTool === "rotate") {
+        const selected = selectedIds.map(id => s.objects.find((o) => o.id === id)).filter(Boolean);
+        if (selected.some((o) => !isMutable(o))) return;
         const snap = JSON.parse(JSON.stringify(s.objects));
         // Whole-group rotation: when every selected object shares one groupId,
         // rotate all members about the COMBINED bbox center (group pivot) instead
@@ -598,7 +657,7 @@ export function initTransform(svg, state) {
           ? gFirst.groupId : null;
         if (gGid) {
           const members = selectedIds.map((id) => s.objects.find((o) => o.id === id)).filter(Boolean);
-          if (members.some((o) => o.locked)) return; // a locked member blocks the gesture
+          if (members.some((o) => !isMutable(o))) return;
           const box0 = groupBBox(members, svg);
           if (box0) {
             const px = box0.x + box0.w / 2, py = box0.y + box0.h / 2;
@@ -667,7 +726,7 @@ export function initTransform(svg, state) {
       if (!selectedIds.length) return;
       const triangleIds = selectedIds.filter(id => {
         const o = s.objects.find(ob => ob.id === id);
-        return isMutable(o) && o.type === "triangle"; // skip locked
+        return isMutable(o) && o.type === "triangle";
       });
       if (!triangleIds.length) return;
       e.preventDefault();
@@ -799,7 +858,7 @@ export function initTransform(svg, state) {
         ? gFirst.groupId : null;
       if (gGid) {
         const members = selectedIds0.map((id) => s0.objects.find((o) => o.id === id)).filter(Boolean);
-        if (members.some((o) => o.locked)) return; // a locked member blocks the gesture
+        if (members.some((o) => !isMutable(o))) return;
         const box0 = groupBBox(members, svg);
         if (box0) {
           if (activeTool === "rotate") {
@@ -837,7 +896,7 @@ export function initTransform(svg, state) {
       const s = s0;
       const obj = s.objects.find((o) => o.id === selectedIds0[0]);
       if (obj) {
-        if (obj.locked) return; // locked objects block handle and rotation drag
+        if (!isMutable(obj)) return;
         const isCorner = ["nw", "ne", "se", "sw"].includes(hLabel);
         if (activeTool === "rotate" && isCorner) {
           _rotating       = true;
@@ -845,7 +904,8 @@ export function initTransform(svg, state) {
           _rotOrigObj     = JSON.parse(JSON.stringify(obj));
           // Closed polyline/curve rotates about its bbox CENTER (points are baked,
           // there is no rotation field / opposite-corner pivot to track).
-          _rotPivot       = (isClosedPoly(obj) || isClosedCurve(obj)) ? polyCenter(obj.points) : getRotPivot(obj, hLabel);
+          _rotPivot       = (obj.positionLocked || isClosedPoly(obj) || isClosedCurve(obj))
+            ? objectCenter(obj) : getRotPivot(obj, hLabel);
           const mouse     = screenToWorld(svg, s.viewBox, e.clientX, e.clientY);
           _rotStartAngle  = Math.atan2(mouse.y - _rotPivot.y, mouse.x - _rotPivot.x);
           _rotPendingSnap = JSON.parse(JSON.stringify(s.objects));
@@ -881,11 +941,8 @@ export function initTransform(svg, state) {
 
     const obj = s.objects.find((o) => o.id === clickedId);
     if (!obj) return;
-    if (obj.locked) return; // locked objects block body-move
-
     const vb = s.viewBox;
     _moveStartWorld = screenToWorld(svg, vb, e.clientX, e.clientY);
-    _moving = true;
     // Expand to all group members when selected objects share a group
     const _firstMoveObj = s.objects.find((o) => o.id === selectedIds[0]);
     const _sharedGid = _firstMoveObj?.groupId &&
@@ -896,6 +953,17 @@ export function initTransform(svg, state) {
       const _mgrp = s.groups.find((g) => g.id === _sharedGid);
       if (_mgrp) _moveIds = [..._mgrp.memberIds];
     }
+    const _moveObjs = _moveIds.map(id => s.objects.find((o) => o.id === id)).filter(Boolean);
+    if (_moveObjs.some((o) => !isPositionMovable(o))) {
+      _moving = false;
+      _moveObjIds = [];
+      _moveOrigObjs = {};
+      _moveStartWorld = null;
+      _pendingSnapshot = null;
+      _didMove = false;
+      return;
+    }
+    _moving = true;
     _moveObjIds = _moveIds;
     _moveOrigObjs = {};
     _moveIds.forEach(id => {
@@ -980,15 +1048,19 @@ export function initTransform(svg, state) {
           const obj = s.objects.find((o) => o.id === id);
           const orig = _groupOrigObjs[id];
           if (!obj || !orig) return;
+          const memberCenter = objectCenter(orig);
+          const memberRot = orig.positionLocked
+            ? (x, y) => rotPt(x, y, memberCenter.x, memberCenter.y, deltaDeg)
+            : rot;
           if (orig.type === "line") {
-            obj.p1 = rot(orig.p1.x, orig.p1.y);
-            obj.p2 = rot(orig.p2.x, orig.p2.y);
+            obj.p1 = memberRot(orig.p1.x, orig.p1.y);
+            obj.p2 = memberRot(orig.p2.x, orig.p2.y);
           } else if (orig.type === "polyline" || orig.type === "curve") {
-            obj.points = orig.points.map((p) => rot(p.x, p.y));
+            obj.points = orig.points.map((p) => memberRot(p.x, p.y));
           } else {
             // box-type (rect/ellipse/triangle/text): rotate center about pivot,
             // and bump the member's own rotation field by the same delta.
-            const c = rot(orig.x + orig.w / 2, orig.y + orig.h / 2);
+            const c = orig.positionLocked ? memberCenter : rot(memberCenter.x, memberCenter.y);
             obj.x = c.x - orig.w / 2;
             obj.y = c.y - orig.h / 2;
             obj.rotation = (orig.rotation || 0) + deltaDeg;
@@ -1046,8 +1118,8 @@ export function initTransform(svg, state) {
     }
   });
 
-  /* -- mouseup: commit or discard the pending undo snapshot -- */
-  window.addEventListener("mouseup", () => {
+  /* -- pointer/mouse release: commit or discard the pending undo snapshot -- */
+  const finishGesture = () => {
     if (_rotating) {
       _rotating = false;
       if (_rotDidMove && _rotPendingSnap) {
@@ -1133,5 +1205,24 @@ export function initTransform(svg, state) {
     _moveOrigObjs = {};
     _pendingSnapshot = null;
     _didMove = false;
+  };
+  window.addEventListener("pointerup", finishGesture);
+  window.addEventListener("mouseup", finishGesture);
+
+  /* Pointer cancellation must not leave a live gesture or preview state behind. */
+  window.addEventListener("pointercancel", () => {
+    const snap = _rotPendingSnap || _pendingSnapshot;
+    if (snap) state.update((s) => { s.objects = cloneObjects(snap); });
+    _moving = _handleDragging = _groupResizing = _rotating = _groupRotating = false;
+    _moveObjIds = [];
+    _moveOrigObjs = {};
+    _moveStartWorld = null;
+    _handleId = _handleOrigObj = _handleStartWorld = null;
+    _groupHandle = _groupBox0 = null;
+    _groupMemberIds = [];
+    _groupOrigObjs = {};
+    _rotObjId = _rotOrigObj = _rotPivot = _rotPendingSnap = null;
+    _pendingSnapshot = null;
+    _didMove = _rotDidMove = false;
   });
 }

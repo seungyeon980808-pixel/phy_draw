@@ -1,4 +1,4 @@
-﻿/* ===== MAIN (wire modules; data-as-truth + viewBox zoom/pan) ===== */
+/* ===== MAIN (wire modules; data-as-truth + viewBox zoom/pan) ===== */
 //
 // Responsibilities:
 //   1. write state.viewBox onto the SVG (the only coordinate authority);
@@ -7,18 +7,49 @@
 //   4. init tools (tool selection + the rectangle draw pipeline).
 
 // ?v= matches index.html so a version bump reloads every module, not just main.
-import { state } from "./state.js?v=0.16.3";
-import { render } from "./render.js?v=0.16.3";
-import { initViewport, getZoom, screenToWorld } from "./viewport.js?v=0.16.3";
-import { initTools } from "./tools.js?v=0.16.3";
-import { initTransform } from "./transform.js?v=0.16.3";
-import { initInspector } from "./inspector.js?v=0.16.3";
-import { initProjectIO } from "./project-io.js?v=0.16.3";
-import { initExportDialog } from "./export-dialog.js?v=0.16.3";
-import { initRuler } from "./ruler.js?v=0.27.0";
+import { state } from "./state.js?v=0.31.2";
+import { render } from "./render.js?v=0.31.2";
+import { initViewport, getZoom, screenToWorld, centerView, setCenterLocked } from "./viewport.js?v=0.31.2";
+import { initTools } from "./tools.js?v=0.31.2";
+import { initTransform, undo, redo } from "./transform.js?v=0.31.2";
+import { initInspector } from "./inspector.js?v=0.31.2";
+import { initProjectIO } from "./project-io.js?v=0.31.2";
+import { initExportDialog } from "./export-dialog.js?v=0.31.2";
+import { initRuler, setRulerVisible } from "./ruler.js?v=0.31.2";
 
 const svg = document.getElementById("canvas");
 const zoomReadout = document.getElementById("zoom-readout");
+
+/* ===== APP FULLSCREEN (workspace only; artboard state remains unchanged) ===== */
+(function initFullscreen() {
+  const app = document.querySelector(".app");
+  const btn = document.getElementById("fullscreen-toggle");
+  if (!app || !btn) return;
+
+  const syncButton = () => {
+    const active = document.fullscreenElement === app;
+    btn.setAttribute("aria-pressed", String(active));
+    btn.setAttribute("aria-label", active ? "전체화면 해제" : "전체화면");
+    btn.title = active ? "전체화면 해제 (Alt+Enter)" : "전체화면 (Alt+Enter)";
+  };
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await app.requestFullscreen();
+    } catch (error) {
+      console.error("Unable to toggle fullscreen", error);
+    }
+  };
+
+  btn.addEventListener("click", toggleFullscreen);
+  document.addEventListener("fullscreenchange", syncButton);
+  window.addEventListener("keydown", (e) => {
+    if (!e.altKey || e.key !== "Enter" || e.repeat) return;
+    e.preventDefault();
+    toggleFullscreen();
+  });
+  syncButton();
+})();
 
 /* ===== THEME TOGGLE (dark/light; persisted in localStorage 'theme') ===== */
 (function initTheme() {
@@ -69,14 +100,74 @@ initTransform(svg, state);
 /* ----- inspector: right-panel controls wired to selected object ----- */
 initInspector(state);
 
+/* ===== UNDO / REDO TOP-BAR BUTTONS (icon-only; left of 파일) ===== */
+(function initUndoRedoButtons() {
+  const undoBtn = document.getElementById("undo-btn");
+  const redoBtn = document.getElementById("redo-btn");
+  if (!undoBtn || !redoBtn) return;
+  undoBtn.addEventListener("click", () => undo(state));
+  redoBtn.addEventListener("click", () => redo(state));
+  // Reflect availability on every state change (history changes via update()).
+  function syncUndoRedo(s) {
+    undoBtn.disabled = (s.undoStack || []).length === 0;
+    redoBtn.disabled = (s.redoStack || []).length === 0;
+  }
+  state.subscribe(syncUndoRedo);
+  syncUndoRedo(state.get());
+})();
+
 /* ----- project I/O: top-bar ????닿린 buttons (editable JSON source) ----- */
-initProjectIO(state);
+initProjectIO(state, svg);
 
 /* ----- export dialog: ?뚯씪 dropdown ???대?吏濡??대낫?닿린 (PNG/SVG) ----- */
 initExportDialog(state);
 
 /* ----- rulers: top + left ruler canvases synced to viewport ----- */
 initRuler(svg, state);
+
+/* ===== TOOL PANEL: collapsible section toggle (event delegation) ===== */
+(function initToolSections() {
+  const panel = document.getElementById("tool-list");
+  if (!panel) return;
+  panel.addEventListener("click", (e) => {
+    const header = e.target.closest(".tool-section-header");
+    if (!header) return;
+    header.closest(".tool-section").classList.toggle("is-collapsed");
+  });
+})();
+
+/* ===== GRID CONTROLS (canvas bottom bar) ===== */
+(function initGridControls() {
+  const toggle   = document.getElementById("grid-toggle");
+  const slider   = document.getElementById("grid-opacity");
+  const interval = document.getElementById("grid-interval");
+  const centerBtn = document.getElementById("center-view-btn");
+  if (!toggle || !slider) return;
+  toggle.addEventListener("change", () => {
+    state.update((s) => { s.grid.visible = toggle.checked; });
+  });
+  slider.addEventListener("input", () => {
+    state.update((s) => { s.grid.opacity = Number(slider.value); });
+  });
+  if (interval) {
+    interval.addEventListener("input", () => {
+      state.update((s) => { s.grid.interval = Number(interval.value); });
+    });
+  }
+  if (centerBtn) {
+    centerBtn.addEventListener("click", () => {
+      const locked = centerBtn.classList.toggle("is-active");
+      setCenterLocked(locked);
+      centerBtn.style.background = locked ? "var(--c-main)" : "";
+      centerBtn.style.color = locked ? "#fff" : "";
+      if (locked) centerView(state);
+    });
+  }
+  const rulerToggle = document.getElementById("ruler-toggle");
+  if (rulerToggle) {
+    rulerToggle.addEventListener("change", () => setRulerVisible(rulerToggle.checked));
+  }
+})();
 
 /* ----- initial paint ----- */
 applyViewBox(state.get());

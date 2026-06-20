@@ -1,5 +1,8 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.31.2";
+import { openFontModalForSelection } from "./tools.js?v=0.31.2";
+
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
 // Branch-B "line family": share arrow + dash controls; fill section is hidden for them.
@@ -555,8 +558,132 @@ export function initInspector(state) {
   groupBtnDiv.appendChild(groupBtn);
   contentEl.appendChild(groupBtnDiv);
 
+  // ---- 각도 (straight line only): set the line's angle in degrees ----
+  // angle = atan2(p2.y - p1.y, p2.x - p1.x). Editing rotates the line about its
+  // midpoint, preserving length. Axis-aligned angles snap to an exact horizontal
+  // / vertical so 0° / 90° land precisely. One undo entry per edit.
+  const angleRow = document.createElement("div");
+  angleRow.className = "insp-row";
+  const angleLbl = document.createElement("label");
+  angleLbl.className = "insp-field-label";
+  angleLbl.textContent = "각도";
+  const angleInp = document.createElement("input");
+  angleInp.type = "number";
+  angleInp.step = "1";
+  angleInp.className = "insp-input";
+  const angleUnit = document.createElement("span");
+  angleUnit.className = "insp-unit";
+  angleUnit.textContent = "°";
+  angleRow.appendChild(angleLbl);
+  angleRow.appendChild(angleInp);
+  angleRow.appendChild(angleUnit);
+  sec1Body.appendChild(angleRow);
+
+  function commitAngle() {
+    const val = parseFloat(angleInp.value);
+    if (!isFinite(val)) return;
+    const s = state.get();
+    const ids = s.selectedIds || [];
+    if (ids.length !== 1) return;
+    const snap = JSON.parse(JSON.stringify(s.objects));
+    state.update((s2) => {
+      const o = s2.objects.find((o) => o.id === ids[0]);
+      if (!o || o.type !== "line" || o.locked) return;
+      const mx = (o.p1.x + o.p2.x) / 2, my = (o.p1.y + o.p2.y) / 2;
+      const len = Math.hypot(o.p2.x - o.p1.x, o.p2.y - o.p1.y);
+      const rad = (val * Math.PI) / 180;
+      let nx = Math.cos(rad), ny = Math.sin(rad);
+      const n = ((val % 360) + 360) % 360;
+      if (n === 0 || n === 180) ny = 0;   // exact horizontal
+      if (n === 90 || n === 270) nx = 0;  // exact vertical
+      const hx = (nx * len) / 2, hy = (ny * len) / 2;
+      o.p1 = { x: mx - hx, y: my - hy };
+      o.p2 = { x: mx + hx, y: my + hy };
+      s2.undoStack.push(snap);
+      s2.redoStack = [];
+    });
+  }
+  angleInp.addEventListener("keydown", (e) => { if (e.key === "Enter") angleInp.blur(); });
+  angleInp.addEventListener("blur", commitAngle);
+
   const sec1 = makeSection("선", sec1Body);
   contentEl.appendChild(sec1);
+
+  /* ---- Section (text only): 글꼴 (font family + size) ----
+   * Edits the SAME obj.fontFamily / obj.fontSize fields the right-click menu uses.
+   * Each change pushes one undo snapshot so Ctrl+Z reverts it. */
+  const secTextBody = document.createElement("div");
+  secTextBody.className = "insp-body";
+
+  const fontFamRow = document.createElement("div");
+  fontFamRow.className = "insp-row";
+  const fontFamLbl = document.createElement("label");
+  fontFamLbl.className = "insp-field-label";
+  fontFamLbl.textContent = "글꼴";
+  const fontFamSel = document.createElement("select");
+  fontFamSel.style.cssText = "flex:1;min-width:0;font-size:12px;border:1px solid #3a3c41;border-radius:3px;padding:2px 4px;background:#1e1f22;color:#dcddde;";
+  TEXT_FONTS.forEach((f) => {
+    const opt = document.createElement("option");
+    opt.value = f.css;
+    opt.textContent = f.label;
+    fontFamSel.appendChild(opt);
+  });
+  fontFamRow.appendChild(fontFamLbl);
+  fontFamRow.appendChild(fontFamSel);
+  secTextBody.appendChild(fontFamRow);
+
+  const fontSizeRow = document.createElement("div");
+  fontSizeRow.className = "insp-row";
+  const fontSizeLbl = document.createElement("label");
+  fontSizeLbl.className = "insp-field-label";
+  fontSizeLbl.textContent = "크기";
+  const fontSizeNum = document.createElement("input");
+  fontSizeNum.type = "number";
+  fontSizeNum.min = "1";
+  fontSizeNum.max = "400";
+  fontSizeNum.step = "1";
+  fontSizeNum.style.cssText = "width:56px;font-size:11px;border:1px solid #3a3c41;border-radius:3px;padding:2px 4px;text-align:center;background:#1e1f22;color:#dcddde;";
+  const fontSizeUnit = document.createElement("span");
+  fontSizeUnit.textContent = "pt"; // points; stored fontSize is world-unit mm
+  fontSizeUnit.className = "insp-unit";
+  fontSizeRow.appendChild(fontSizeLbl);
+  fontSizeRow.appendChild(fontSizeNum);
+  fontSizeRow.appendChild(fontSizeUnit);
+  secTextBody.appendChild(fontSizeRow);
+
+  function applyTextProp(prop, value) {
+    const s = state.get();
+    const ids = s.selectedIds || [];
+    if (ids.length !== 1) return;
+    const snap = JSON.parse(JSON.stringify(s.objects));
+    state.update((s2) => {
+      const o = s2.objects.find((o) => o.id === ids[0]);
+      if (!o || o.type !== "text") return;
+      o[prop] = value;
+      s2.undoStack.push(snap);
+      s2.redoStack = [];
+    });
+  }
+  fontFamSel.addEventListener("change", () => applyTextProp("fontFamily", fontFamSel.value));
+  fontSizeNum.addEventListener("change", () => {
+    const v = parseFloat(fontSizeNum.value); // entered in pt → store mm
+    if (isFinite(v) && v > 0) applyTextProp("fontSize", ptToMm(v));
+  });
+  fontSizeNum.addEventListener("keydown", (e) => { if (e.key === "Enter") fontSizeNum.blur(); });
+
+  // 글꼴 설정... — opens the same modal the right-click menu uses (shared fields).
+  const fontDlgRow = document.createElement("div");
+  fontDlgRow.className = "insp-row";
+  const fontDlgBtn = document.createElement("button");
+  fontDlgBtn.type = "button";
+  fontDlgBtn.textContent = "글꼴 설정...";
+  fontDlgBtn.style.cssText = "padding:4px 10px;font-size:11px;cursor:pointer;border:1px solid #3a3c41;border-radius:3px;background:#1e1f22;color:#dcddde;width:100%;";
+  fontDlgBtn.addEventListener("click", () => openFontModalForSelection());
+  fontDlgRow.appendChild(fontDlgBtn);
+  secTextBody.appendChild(fontDlgRow);
+
+  const secText = makeSection("글꼴", secTextBody);
+  contentEl.appendChild(secText);
 
   /* ---- Section 2: 채우기 ---- */
   const sec2Body = document.createElement("div");
@@ -714,9 +841,13 @@ export function initInspector(state) {
         const id = (s2.selectedIds || [])[0];
         const o = s2.objects.find((o) => o.id === id);
         if (!o) return;
+        if (o.locked || (o.positionLocked && (prop === "x" || prop === "y"))) return;
+        const next = negate ? -val : val;
+        if (o.positionLocked && prop === "w") o.x -= (next - o.w) / 2;
+        if (o.positionLocked && prop === "h") o.y -= (next - o.h) / 2;
         s2.undoStack.push(snap);
         s2.redoStack = [];
-        o[prop] = negate ? -val : val;
+        o[prop] = next;
       });
     }
 
@@ -767,6 +898,18 @@ export function initInspector(state) {
   lockRow.appendChild(lockLbl);
   sec4Body.appendChild(lockRow);
 
+  const positionLockRow = document.createElement("div");
+  positionLockRow.className = "insp-row";
+  const positionLockCb = document.createElement("input");
+  positionLockCb.type = "checkbox";
+  positionLockCb.className = "insp-cb";
+  const positionLockLbl = document.createElement("label");
+  positionLockLbl.className = "insp-field-label";
+  positionLockLbl.textContent = "위치 고정";
+  positionLockRow.appendChild(positionLockCb);
+  positionLockRow.appendChild(positionLockLbl);
+  sec4Body.appendChild(positionLockRow);
+
   lockCb.addEventListener("change", () => {
     const s = state.get();
     const ids = s.selectedIds || [];
@@ -779,6 +922,22 @@ export function initInspector(state) {
       (s2.selectedIds || []).forEach(id => {
         const o = s2.objects.find((o) => o.id === id);
         if (o) o.locked = val;
+      });
+    });
+  });
+
+  positionLockCb.addEventListener("change", () => {
+    const s = state.get();
+    const ids = s.selectedIds || [];
+    if (!ids.length) return;
+    const snap = snapBefore();
+    const val = positionLockCb.checked;
+    state.update((s2) => {
+      s2.undoStack.push(snap);
+      s2.redoStack = [];
+      (s2.selectedIds || []).forEach(id => {
+        const o = s2.objects.find((o) => o.id === id);
+        if (o) o.positionLocked = val;
       });
     });
   });
@@ -997,6 +1156,7 @@ export function initInspector(state) {
     contentEl.style.display = "";
     abSection.style.display = "none"; // hidden whenever something is selected
     groupBtnDiv.style.display = "none"; // shown only for an ungrouped multi-selection
+    secText.style.display = "none"; // shown only for a single text object (set below)
 
     // Targeted state: only show ungroup button, hide everything else
     if (s.targetedId) {
@@ -1009,6 +1169,7 @@ export function initInspector(state) {
       dashRow.style.display = "none";
       dashSliders.style.display = "none";
       closeRow.style.display = "none";
+      angleRow.style.display = "none";
       return;
     }
 
@@ -1036,6 +1197,15 @@ export function initInspector(state) {
       dashRow.style.display = "none";
       dashSliders.style.display = "none";
       closeRow.style.display = "none";
+      angleRow.style.display = "none";
+
+      const groupHasLocked = ids.some((id) => s.objects.find((o) => o.id === id)?.locked);
+      const groupHasPositionLocked = ids.some((id) => s.objects.find((o) => o.id === id)?.positionLocked);
+      xF.inp.disabled = groupHasLocked || groupHasPositionLocked;
+      yF.inp.disabled = groupHasLocked || groupHasPositionLocked;
+      wF.inp.disabled = groupHasLocked;
+      hF.inp.disabled = groupHasLocked;
+      rotF.inp.disabled = groupHasLocked;
 
       if (_dragging) return;
 
@@ -1104,6 +1274,7 @@ export function initInspector(state) {
       dashRow.style.display = "none";
       dashSliders.style.display = "none";
       closeRow.style.display = "none";
+      angleRow.style.display = "none";
 
       if (_dragging) return;
 
@@ -1132,7 +1303,17 @@ export function initInspector(state) {
 
     if (_dragging) return; // skip during color picker drag to avoid handle jump
 
-    sec1.style.display = "";
+    const isText = obj.type === "text";
+    // Text has no stroke/fill controls; it gets its own 글꼴 section instead.
+    sec1.style.display = isText ? "none" : "";
+    secText.style.display = isText ? "" : "none";
+    if (isText) {
+      fontFamSel.value = obj.fontFamily || DEFAULT_TEXT_FONT;
+      if (document.activeElement !== fontSizeNum) {
+        // Stored fontSize is world-unit mm; the field shows points.
+        fontSizeNum.value = Math.round(mmToPt(obj.fontSize ?? 0) * 10) / 10;
+      }
+    }
     const isLineFamily = LINE_TYPES.includes(obj.type);
 
     // 채우기 섹션 표시 규칙: rect/ellipse/triangle + 닫힌 polyline + 닫힌 curve만 노출.
@@ -1147,6 +1328,14 @@ export function initInspector(state) {
     const showClose  = isPolyline || isCurve;
     closeRow.style.display = showClose ? "" : "none";
     if (showClose) closeCb.checked = obj.closed === true;
+
+    // 각도: straight line only. Skip while the field is focused so typing isn't clobbered.
+    const isStraightLine = obj.type === "line";
+    angleRow.style.display = isStraightLine ? "" : "none";
+    if (isStraightLine && document.activeElement !== angleInp) {
+      const ang = Math.atan2(obj.p2.y - obj.p1.y, obj.p2.x - obj.p1.x) * 180 / Math.PI;
+      angleInp.value = ang.toFixed(1);
+    }
 
     // Arrow head: open line + open polyline (closed polyline = filled shape, no arrow).
     const showArrow = obj.type === "line" || (obj.type === "polyline" && !isClosedPoly);
@@ -1195,6 +1384,13 @@ export function initInspector(state) {
     // Section 4
     sec4.style.display = "";
     lockCb.checked = !!(obj.locked);
+    positionLockCb.checked = !!(obj.positionLocked);
+    positionLockCb.disabled = !!(obj.locked);
+    xF.inp.disabled = !!(obj.locked || obj.positionLocked);
+    yF.inp.disabled = !!(obj.locked || obj.positionLocked);
+    wF.inp.disabled = !!obj.locked;
+    hF.inp.disabled = !!obj.locked;
+    rotF.inp.disabled = !!obj.locked;
   }
 
   state.subscribe(populate);

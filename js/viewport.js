@@ -43,14 +43,41 @@ export function getZoom() {
   return currentZoom(_svgRef, _stateRef.get().viewBox);
 }
 
+// TRUE on-screen scale (px per world unit) honouring preserveAspectRatio="xMidYMid
+// meet" letterboxing. getZoom() uses rect.width/vb.w, which is wrong whenever the
+// SVG box aspect ratio differs from the viewBox — that mismatch is what made
+// committed text resize on commit. The screen CTM's .a is the real meet scale.
+export function getRenderScale() {
+  if (!_svgRef) return getZoom();
+  const m = _svgRef.getScreenCTM();
+  return (m && m.a) ? m.a : getZoom();
+}
+
+/* ----- center lock: when true, drag-pan is suppressed ----- */
+let centerLocked = false;
+export function setCenterLocked(val) { centerLocked = val; }
+
 /* ----- setup: wire wheel-zoom + drag-pan onto the SVG element ----- */
+function clampViewBox(s) {
+  const vb = s.viewBox;
+  const abW = s.artboard.w, abH = s.artboard.h;
+  // Allow panning up to one artboard-width/height beyond each edge — generous
+  // working margin, but a HARD wall so accumulation always stops.
+  const marginX = abW, marginY = abH;
+  const minX = -abW/2 - marginX;
+  const maxX =  abW/2 + marginX - vb.w;
+  const minY = -abH/2 - marginY;
+  const maxY =  abH/2 + marginY - vb.h;
+  // If the view is larger than the allowed span, center on origin instead.
+  vb.x = (minX <= maxX) ? Math.min(maxX, Math.max(minX, vb.x)) : -vb.w/2;
+  vb.y = (minY <= maxY) ? Math.min(maxY, Math.max(minY, vb.y)) : -vb.h/2;
+}
+
 export function initViewport(svg, state, onChange) {
   _svgRef = svg;
   _stateRef = state;
 
   const ZOOM_STEP = 1.0015; // per wheel delta unit; >1 so deltaY<0 zooms in
-  const MIN_W = 1;          // most zoomed-in viewBox width (world units)
-  const MAX_W = 100000;     // most zoomed-out
 
   let spaceHeld = false;
   let panning = false;
@@ -60,50 +87,64 @@ export function initViewport(svg, state, onChange) {
   const commit = () => onChange();
 
   /* --- wheel: plain = vertical pan, Shift = horizontal pan, Ctrl = zoom --- */
-  const PAN_SPEED = 1.0; // world units per pixel of deltaY
   svg.addEventListener(
     "wheel",
     (e) => {
       if (!e.ctrlKey && !e.shiftKey) {
-        // plain scroll → pan vertically
+        // plain scroll → pan vertically (blocked when centerLocked)
         e.preventDefault();
-        state.update((s) => {
-          s.viewBox.y += e.deltaY * PAN_SPEED / currentZoom(svg, s.viewBox);
-        });
-        commit();
+        if (!centerLocked) {
+          state.update((s) => {
+            const _rect = svg.getBoundingClientRect();
+            s.viewBox.y += (e.deltaY / _rect.height) * s.viewBox.h;
+            clampViewBox(s);
+          });
+          commit();
+        }
         return;
       }
       if (e.shiftKey && !e.ctrlKey) {
-        // Shift+scroll → pan horizontally (deltaY repurposed; most mice have one axis)
+        // Shift+scroll → pan horizontally (blocked when centerLocked)
         e.preventDefault();
-        state.update((s) => {
-          s.viewBox.x += e.deltaY * PAN_SPEED / currentZoom(svg, s.viewBox);
-        });
-        commit();
+        if (!centerLocked) {
+          state.update((s) => {
+            const _rect = svg.getBoundingClientRect();
+            s.viewBox.x += (e.deltaY / _rect.height) * s.viewBox.h;
+            clampViewBox(s);
+          });
+          commit();
+        }
         return;
       }
-      // Ctrl+scroll → zoom anchored on cursor (world point under cursor stays put)
+      // Ctrl+scroll → zoom; when centerLocked, zoom is centered on artboard origin
       e.preventDefault();
       state.update((s) => {
         const vb = s.viewBox;
-        const before = screenToWorld(svg, vb, e.clientX, e.clientY);
-
         const factor = Math.pow(ZOOM_STEP, e.deltaY);
-        let newW = vb.w * factor;
-        let newH = vb.h * factor;
-
-        const clampedW = Math.min(MAX_W, Math.max(MIN_W, newW));
+        const _abMax = Math.max(s.artboard.w, s.artboard.h);
+        const MIN_W = _abMax * 0.1;
+        const MAX_W = _abMax * 2.5;
+        const clampedW = Math.min(MAX_W, Math.max(MIN_W, vb.w * factor));
         const k = clampedW / vb.w;
-        newW = vb.w * k;
-        newH = vb.h * k;
+        const newW = vb.w * k;
+        const newH = vb.h * k;
 
-        const rect = svg.getBoundingClientRect();
-        const fx = (e.clientX - rect.left) / rect.width;
-        const fy = (e.clientY - rect.top) / rect.height;
-        vb.w = newW;
-        vb.h = newH;
-        vb.x = before.x - fx * newW;
-        vb.y = before.y - fy * newH;
+        if (centerLocked) {
+          vb.w = newW;
+          vb.h = newH;
+          vb.x = -newW / 2;
+          vb.y = -newH / 2;
+        } else {
+          const before = screenToWorld(svg, vb, e.clientX, e.clientY);
+          const rect = svg.getBoundingClientRect();
+          const fx = (e.clientX - rect.left) / rect.width;
+          const fy = (e.clientY - rect.top) / rect.height;
+          vb.w = newW;
+          vb.h = newH;
+          vb.x = before.x - fx * newW;
+          vb.y = before.y - fy * newH;
+        }
+        clampViewBox(s);
       });
       commit();
     },
@@ -116,7 +157,8 @@ export function initViewport(svg, state, onChange) {
     const isSpaceLeft = e.button === 0 && spaceHeld;
     if (!isMiddle && !isSpaceLeft) return;
 
-    e.preventDefault();
+    e.preventDefault(); // always suppress middle-click autoscroll
+    if (centerLocked) return;
     panning = true;
     const vb = state.get().viewBox;
     panStart = { sx: e.clientX, sy: e.clientY, vb: { ...vb } };
@@ -125,6 +167,8 @@ export function initViewport(svg, state, onChange) {
 
   window.addEventListener("mousemove", (e) => {
     if (!panning) return;
+    if (!panStart || e.buttons === 0) { panning = false; panStart = null; svg.classList.remove("is-panning"); return; }
+    if (centerLocked) return;
     const rect = svg.getBoundingClientRect();
     const start = panStart.vb;
     // convert pixel delta into world delta using the *start* viewBox scale
@@ -133,6 +177,7 @@ export function initViewport(svg, state, onChange) {
     state.update((s) => {
       s.viewBox.x = start.x - dxWorld;
       s.viewBox.y = start.y - dyWorld;
+      clampViewBox(s);
     });
     commit();
   });
@@ -163,5 +208,13 @@ export function initViewport(svg, state, onChange) {
   // suppress middle-click autoscroll / context menu on the canvas
   svg.addEventListener("auxclick", (e) => {
     if (e.button === 1) e.preventDefault();
+  });
+}
+
+/* ----- centerView: reposition so artboard (world origin) is centered in view ----- */
+export function centerView(state) {
+  state.update((s) => {
+    s.viewBox.x = -s.viewBox.w / 2;
+    s.viewBox.y = -s.viewBox.h / 2;
   });
 }

@@ -7,12 +7,50 @@
 // `viewBox` mirrors the SVG viewBox and is the ONLY coordinate authority
 // (DESIGN 1-2). Zoom/pan mutate this, never a CSS transform.
 
-import { createStore } from "./store.js";
+import { createStore } from "./store.js?v=0.31.2";
+
+/* ===== TEXT FONT OPTIONS (single source for inspector + font modal) =====
+ * `css` is used verbatim as both the SVG <text> font-family AND the editor
+ * caret font, so draft and committed text always resolve the same font. */
+export const TEXT_FONTS = [
+  { label: "IBM Plex Sans KR", css: "'IBM Plex Sans KR', sans-serif" },
+  { label: "Noto Sans KR",     css: "'Noto Sans KR', sans-serif" },
+  { label: "맑은 고딕",         css: "'Malgun Gothic', sans-serif" },
+  { label: "Malgun Gothic",    css: "'Malgun Gothic', sans-serif" },
+  { label: "Arial",            css: "Arial, sans-serif" },
+  { label: "Times New Roman",  css: "'Times New Roman', serif" },
+  { label: "명조 (serif)",      css: "serif" },
+  { label: "sans-serif",       css: "sans-serif" },
+  { label: "고정폭 (monospace)", css: "monospace" },
+];
+export const DEFAULT_TEXT_FONT = TEXT_FONTS[0].css;
+// On-screen px the new-text caret/glyph targets; converted to world units at
+// creation via the true render scale (see tools.js setupTextTool).
+export const DEFAULT_TEXT_SIZE_PX = 14;
+
+// Font style presets (font-weight × font-style) for the 글꼴 설정 modal.
+export const TEXT_STYLES = [
+  { label: "Regular",     fontWeight: "normal", fontStyle: "normal" },
+  { label: "Bold",        fontWeight: "bold",   fontStyle: "normal" },
+  { label: "Italic",      fontWeight: "normal", fontStyle: "italic" },
+  { label: "Bold Italic", fontWeight: "bold",   fontStyle: "italic" },
+];
+
+// Typographic size presets (points). Stored fontSize is in WORLD units (mm);
+// the UI presents points and converts via MM_PER_PT so 8–72 read naturally.
+export const TEXT_SIZE_PRESETS = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72];
+export const MM_PER_PT = 25.4 / 72;
+export const ptToMm = (pt) => pt * MM_PER_PT;
+export const mmToPt = (mm) => mm / MM_PER_PT;
 
 /* ----- initial state ----- */
 export const state = createStore({
   // objects: array of { id, type, ...props } — the real drawing data.
   objects: [],
+
+  // Editing-only ruler guides, kept separate from exported objects.
+  guides: [],
+  selectedGuideId: null,
 
   // artboard: the page region, single source of truth for its size (DESIGN 1-1).
   // 1 world unit = 1 mm. Centered on world origin, so it spans
@@ -31,6 +69,13 @@ export const state = createStore({
   // draft: the in-progress shape shown live during a drag. null when idle.
   // It is NOT a committed object — on mouse-up it becomes one in `objects`.
   draft: null,
+
+  // draftText: the in-progress text being typed (T tool). Shape:
+  //   { x, y, text, fontSize, fontFamily }
+  // Rendered live through the SAME renderText() path as a committed object, so
+  // typing is exact WYSIWYG. It is editor-only: never added to `objects`, never
+  // exported, never saved. On commit it becomes a real text object; ESC discards.
+  draftText: null,
 
   // selectedIds: array of selected object ids; empty = nothing selected.
   selectedIds: [],
@@ -55,4 +100,7 @@ export const state = createStore({
     { id: 2, name: "레이어 2", visible: true },
     { id: 3, name: "레이어 3", visible: true },
   ],
+
+  // grid: canvas reference grid (never exported). opacity maps 1-10 → 0.05-1.0.
+  grid: { visible: false, opacity: 3, interval: 10 },
 });

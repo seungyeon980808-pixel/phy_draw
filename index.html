@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap"
+    href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&family=Noto+Sans+KR:wght@400;500;600&display=swap"
     rel="stylesheet"
   />
 
@@ -22,39 +22,49 @@
     <!-- ----- LEFT: tools (V/R now; more shapes land later) ----- -->
     <aside class="panel panel-left">
       <div class="tool-list" id="tool-list">
-        <button class="tool-btn" type="button" data-tool="V" title="선택 (V)">
-          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3 L4 15.5 L7.5 12 L9.8 16.5 L11.7 15.6 L9.4 11.2 L14.5 11 Z"/></svg></kbd>
-        </button>
-        <button class="tool-btn" type="button" data-tool="R" title="사각형 (S)">
-          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5.5" width="13" height="9"/></svg></kbd>
-        </button>
-        <button class="tool-btn" type="button" data-tool="O" title="타원 (O)">
-          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="10" cy="10" rx="7" ry="5"/></svg></kbd>
-        </button>
-        <button class="tool-btn" type="button" data-tool="Y" title="직각삼각형 (Y)">
-          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 4 L4.5 15.5 L16 15.5 Z"/></svg></kbd>
-        </button>
-        <button class="tool-btn" type="button" data-tool="L" title="직선 (L)">
-          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4.5" y1="15.5" x2="15.5" y2="4.5"/><circle cx="4.5" cy="15.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="15.5" cy="4.5" r="1.2" fill="currentColor" stroke="none"/></svg></kbd>
-        </button>
-        <button class="tool-btn" type="button" data-tool="P" title="다각선 (P)">
-          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3.5,14 7.5,6.5 12,12.5 16.5,5.5"/></svg></kbd>
-        </button>
-        <button class="tool-btn" type="button" data-tool="C" title="곡선 (C)">
-          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5,14 C5,4 9,4 10,10 S15,16 16.5,6"/></svg></kbd>
-        </button>
-        <button class="tool-btn" type="button" data-tool="T" title="텍스트 (T)">
-          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="5" x2="16" y2="5"/><line x1="10" y1="5" x2="10" y2="16"/></svg></kbd>
-        </button>
-        <button class="tool-btn" type="button" data-tool="rotate" title="회전 (R)">
-          <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5.5 A6.5 6.5 0 1 0 16.5 10"/><polyline points="14,3 16.5,5.5 14,8"/></svg></kbd>
-        </button>
+        <div class="tool-section">
+          <div class="tool-section-header">공통 도구 <span class="toggle-icon">▾</span></div>
+          <div class="tool-section-body">
+            <button class="tool-btn" type="button" data-tool="V" title="선택 (V)">
+              <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3 L4 15.5 L7.5 12 L9.8 16.5 L11.7 15.6 L9.4 11.2 L14.5 11 Z"/></svg></kbd>
+            </button>
+            <button class="tool-btn" type="button" data-tool="R" title="사각형 (S)">
+              <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5.5" width="13" height="9"/></svg></kbd>
+            </button>
+            <button class="tool-btn" type="button" data-tool="O" title="타원 (O)">
+              <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="10" cy="10" rx="7" ry="5"/></svg></kbd>
+            </button>
+            <button class="tool-btn" type="button" data-tool="Y" title="직각삼각형 (Y)">
+              <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 4 L4.5 15.5 L16 15.5 Z"/></svg></kbd>
+            </button>
+            <button class="tool-btn" type="button" data-tool="L" title="직선 (L)">
+              <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4.5" y1="15.5" x2="15.5" y2="4.5"/><circle cx="4.5" cy="15.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="15.5" cy="4.5" r="1.2" fill="currentColor" stroke="none"/></svg></kbd>
+            </button>
+            <button class="tool-btn" type="button" data-tool="P" title="다각선 (P)">
+              <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3.5,14 7.5,6.5 12,12.5 16.5,5.5"/></svg></kbd>
+            </button>
+            <button class="tool-btn" type="button" data-tool="C" title="곡선 (C)">
+              <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5,14 C5,4 9,4 10,10 S15,16 16.5,6"/></svg></kbd>
+            </button>
+            <button class="tool-btn" type="button" data-tool="T" title="텍스트 (T)">
+              <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="5" x2="16" y2="5"/><line x1="10" y1="5" x2="10" y2="16"/></svg></kbd>
+            </button>
+            <button class="tool-btn" type="button" data-tool="rotate" title="회전 (R)">
+              <kbd><svg class="tool-ico" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5.5 A6.5 6.5 0 1 0 16.5 10"/><polyline points="14,3 16.5,5.5 14,8"/></svg></kbd>
+            </button>
+          </div>
+        </div>
       </div>
     </aside>
 
     <!-- ----- CENTER: canvas (the only working panel in 1A) ----- -->
     <main class="panel panel-center">
       <div class="canvas-toolbar">
+        <!-- Undo / Redo (icon-only; sit immediately left of 파일) -->
+        <button id="undo-btn" class="topbar-btn icon-btn" type="button"
+                title="되돌리기 (Ctrl+Z)" aria-label="되돌리기" disabled>↶</button>
+        <button id="redo-btn" class="topbar-btn icon-btn" type="button"
+                title="다시 실행 (Ctrl+Y / Ctrl+Shift+Z)" aria-label="다시 실행" disabled>↷</button>
         <!-- 파일 dropdown: project I/O (JSON) + image export (PNG/SVG) -->
         <div class="file-menu">
           <button id="file-menu-btn" class="topbar-btn" type="button"
@@ -62,16 +72,23 @@
           <div id="file-menu-list" class="file-menu-list" role="menu" hidden>
             <button id="project-save" class="file-menu-item" type="button" role="menuitem">프로젝트 저장</button>
             <button id="project-open" class="file-menu-item" type="button" role="menuitem">프로젝트 불러오기</button>
+            <button id="image-import" class="file-menu-item" type="button" role="menuitem">이미지 불러오기</button>
             <div class="file-menu-divider" role="separator"></div>
             <button id="image-export" class="file-menu-item" type="button" role="menuitem">이미지로 내보내기</button>
           </div>
         </div>
         <span id="zoom-readout" class="zoom-readout">zoom 1.00×</span>
+        <button id="fullscreen-toggle" class="topbar-btn fullscreen-toggle" type="button"
+                title="전체화면 (Alt+Enter)" aria-label="전체화면" aria-pressed="false">
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M3.5 7V3.5H7M13 3.5h3.5V7M16.5 13v3.5H13M7 16.5H3.5V13" />
+          </svg>
+        </button>
         <button id="theme-toggle" class="theme-toggle" type="button" title="테마 전환" aria-label="테마 전환">☀</button>
       </div>
 
       <div class="canvas-wrap">
-        <!-- ruler-container: CSS grid - corner | h-ruler / v-ruler | canvas -->
+        <!-- ruler-container: CSS grid — corner | h-ruler / v-ruler | canvas -->
         <div class="ruler-container" id="ruler-container">
           <div class="ruler-corner"></div>
           <canvas id="ruler-h" class="ruler ruler-h"></canvas>
@@ -88,6 +105,28 @@
           </svg>
         </div>
       </div>
+
+      <!-- ===== CANVAS BOTTOM BAR: grid controls ===== -->
+      <div class="canvas-bottom-bar">
+        <label>
+          <input type="checkbox" id="grid-toggle" />
+          격자
+        </label>
+        <label>
+          진하기
+          <input type="range" id="grid-opacity" min="1" max="10" value="3" />
+        </label>
+        <label>
+          간격
+          <input type="number" id="grid-interval" min="5" max="50" step="5" value="10" style="width:4.5em" />
+          mm
+        </label>
+        <button id="center-view-btn" title="아트보드를 화면 중앙으로">⌖</button>
+        <label>
+          <input type="checkbox" id="ruler-toggle" checked />
+          눈금자
+        </label>
+      </div>
     </main>
 
     <!-- ----- RIGHT: inspector ----- -->
@@ -102,13 +141,17 @@
     </aside>
   </div>
 
+  <div class="developer-credit" aria-hidden="true">
+    Developed by 박승연 | SMOE
+  </div>
+
   <!-- ===== FOOTER: version + date ===== -->
   <footer class="app-footer">
-    PhysicsExamDrawer Web · <strong>v0.17.0</strong> · 2026-06-19
+    PhysicsExamDrawer Web · <strong>v0.31.2</strong> · 2026-06-21
   </footer>
 
   <!-- ===== MODULES (load order matters: store → state → viewport → render → main) ===== -->
   <!-- ?v= busts the ES-module cache so edits actually load (DESIGN: cache-bust) -->
-  <script type="module" src="js/main.js?v=0.27.0"></script>
+  <script type="module" src="js/main.js?v=0.31.2"></script>
 </body>
 </html>
