@@ -583,16 +583,14 @@ body {
 #canvas.space-held { cursor: grab; }
 
 /* ===== TEXT EDITOR OVERLAY (T tool) ===== */
-/* CAPTURE-ONLY overlay: the visible glyphs are drawn by render.js as real SVG
-   <text> (state.draftText) through the SAME path as the committed object, so the
-   draft is exact WYSIWYG. This textarea exists only to receive keystrokes and
-   show the caret — its own text is transparent to avoid double-rendering.
-   font-size/family are set inline (tools.js _syncEditorFont) from the draft. */
+/* Native editor overlay: while editing, this textarea owns both the visible
+   glyphs and caret so browser selectionStart/selectionEnd are authoritative.
+   Committed text returns to the SVG renderer. Font styles are synced inline. */
 .text-editor-overlay {
   position: absolute;
   z-index: 100;
   background: transparent;
-  color: transparent;
+  color: #0d1117;
   caret-color: var(--accent, #0969da);
   border: 0;
   /* Left padding MUST stay 0 so the text origin lines up with getBoundingClientRect().left

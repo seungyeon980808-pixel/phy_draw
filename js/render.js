@@ -341,11 +341,9 @@ export function render(state) {
     }
   }
 
-  // ----- live text-editing preview (T tool): SAME renderText() path as the
-  // committed object → exact WYSIWYG. Plus a blue dashed outline so the editing
-  // area is visible. Editor-only: built into the live scene, never into
-  // buildExportSvg()/objects, so it is not exported or saved. -----
-  if (state.draftText && (state.draftText.text || "").length) {
+  // Optional non-native preview. Normal editing uses the textarea overlay so
+  // its visible glyphs and native caret share one browser text layout.
+  if (state.draftText && !state.draftText.nativeEditor && (state.draftText.text || "").length) {
     const dt = state.draftText;
     const tEl = renderText(dt);
     tEl.dataset.ui = "draft-text";

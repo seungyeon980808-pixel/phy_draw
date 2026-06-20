@@ -72,9 +72,9 @@ export const state = createStore({
 
   // draftText: the in-progress text being typed (T tool). Shape:
   //   { x, y, text, fontSize, fontFamily }
-  // Rendered live through the SAME renderText() path as a committed object, so
-  // typing is exact WYSIWYG. It is editor-only: never added to `objects`, never
-  // exported, never saved. On commit it becomes a real text object; ESC discards.
+  // Displayed through the native textarea while editing so its caret and glyphs
+  // share one browser layout. Never exported or saved; commit creates the real
+  // text object and ESC discards the draft.
   draftText: null,
 
   // selectedIds: array of selected object ids; empty = nothing selected.

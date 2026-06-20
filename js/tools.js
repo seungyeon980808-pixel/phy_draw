@@ -819,11 +819,10 @@ function evalBezier(seg, t) {
 
 /* ===== TEXT TOOL (T) — create, edit-in-place, font menu, font modal ===== */
 //
-// A CAPTURE-ONLY <textarea> overlay (transparent text, only the caret shows)
-// receives keystrokes; the visible glyphs are drawn by render.js through
-// state.draftText using the SAME renderText() path as the committed object, so
-// the draft is exact WYSIWYG. The draft carries an `editingId`: null for new
-// text, or an existing object's id when re-editing it in place.
+// A native <textarea> overlay owns the glyphs, selection, IME composition, and
+// caret while editing. Committed text is rendered as SVG after the overlay is
+// closed. The draft carries an `editingId`: null for new text, or an existing
+// object's id when re-editing it in place.
 //
 // Enter commits; Shift+Enter inserts a newline; ESC cancels (restoring the
 // original when editing an existing object).
@@ -889,64 +888,62 @@ function _measureCtx() {
   return _measureCanvas.getContext("2d");
 }
 
-// Grapheme cluster boundaries of `line` as {start,end} string offsets (UTF-16).
-function _graphemeRanges(line) {
-  const out = [];
-  if (typeof Intl !== "undefined" && Intl.Segmenter) {
-    const seg = new Intl.Segmenter("ko", { granularity: "grapheme" });
-    for (const g of seg.segment(line)) out.push({ start: g.index, end: g.index + g.segment.length });
-    return out;
-  }
-  // Fallback: for-of respects code points, so it never splits surrogate pairs.
-  let idx = 0;
-  for (const ch of line) { out.push({ start: idx, end: idx + ch.length }); idx += ch.length; }
-  return out;
-}
-
-// Char offset within `line` (string index) closest to local x (px from line start).
-function _charOffsetInLine(line, localX, fontCss) {
-  if (localX <= 0 || line.length === 0) return 0;
-  const ctx = _measureCtx();
-  ctx.font = fontCss;
-  let prevW = 0;
-  for (const g of _graphemeRanges(line)) {
-    const w = ctx.measureText(line.slice(0, g.end)).width;
-    // Click before the cluster's horizontal midpoint → caret on its left side.
-    if (localX < (prevW + w) / 2) return g.start;
-    prevW = w;
-  }
-  return line.length;
-}
-
 // Caret index (UTF-16) in the overlay value for a client-space click point.
-function _caretIndexFromClick(clientX, clientY) {
+// A DOM text mirror is necessary because textarea contents live in a user-agent
+// shadow tree that caretPositionFromPoint does not expose consistently.
+function _caretIndexFromPoint(clientX, clientY) {
   if (!_textEditor) return null;
-  const rect = _textEditor.getBoundingClientRect();
-  const cs = getComputedStyle(_textEditor);
-  // The overlay is positioned in .canvas-wrap-relative px, but getBoundingClientRect
-  // is viewport px and excludes padding/border. On non-integer devicePixelRatio these
-  // disagree, so fold the textarea's own padding+border into the local-x/y origin.
-  const padL = parseFloat(cs.paddingLeft) || 0;
-  const bordL = parseFloat(cs.borderLeftWidth) || 0;
-  const padT = parseFloat(cs.paddingTop) || 0;
-  const bordT = parseFloat(cs.borderTopWidth) || 0;
-  const fontSizePx = parseFloat(cs.fontSize) || (TEXT_EDITOR_PX);
-  let lineH = parseFloat(cs.lineHeight);
-  if (!isFinite(lineH) || lineH <= 0) lineH = fontSizePx * TEXT_LINE_HEIGHT;
-  const fontCss = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
 
-  const lines = _textEditor.value.split("\n");
-  // y → line index (each line box is lineH tall; clamp into range).
-  let li = Math.floor((clientY - rect.top - padT - bordT) / lineH);
-  li = Math.max(0, Math.min(lines.length - 1, li));
-  // base = chars before this line, counting one \n per preceding line.
-  let base = 0;
-  for (let i = 0; i < li; i++) base += lines[i].length + 1;
-  const localX = Math.max(0, clientX - rect.left - padL - bordL);
-  const off = _charOffsetInLine(lines[li], localX, fontCss);
-  // Clamp to a valid INSERTION boundary [0 .. value.length]. Never text.length-1,
-  // so the position AFTER the last character stays reachable.
-  return Math.max(0, Math.min(_textEditor.value.length, base + off));
+  // Chromium exposes the native textarea offset directly. This is the ideal
+  // path because it is exactly the index a real click will put in selectionStart.
+  if (document.caretPositionFromPoint) {
+    const pos = document.caretPositionFromPoint(clientX, clientY);
+    if (pos && pos.offsetNode === _textEditor) {
+      return Math.max(0, Math.min(_textEditor.value.length, pos.offset));
+    }
+  } else if (document.caretRangeFromPoint) {
+    const range = document.caretRangeFromPoint(clientX, clientY);
+    if (range && range.startContainer === _textEditor) {
+      return Math.max(0, Math.min(_textEditor.value.length, range.startOffset));
+    }
+  }
+
+  // Fallback for engines that keep textarea contents fully inside their
+  // user-agent shadow tree: query an identically styled DOM text node.
+  const mirror = document.createElement("div");
+  mirror.className = "text-editor-overlay";
+  mirror.setAttribute("aria-hidden", "true");
+  mirror.textContent = _textEditor.value || "\u200b";
+  mirror.style.cssText = _textEditor.style.cssText;
+  mirror.style.height = _textEditor.clientHeight + "px";
+  mirror.style.minWidth = "0";
+  mirror.style.color = "transparent";
+  mirror.style.background = "transparent";
+  mirror.style.whiteSpace = "pre";
+  mirror.style.overflow = "hidden";
+  mirror.style.pointerEvents = "auto";
+  mirror.style.zIndex = "2147483647";
+  _textEditor.parentElement.appendChild(mirror);
+
+  let node = null;
+  let offset = 0;
+  if (document.caretPositionFromPoint) {
+    const pos = document.caretPositionFromPoint(clientX, clientY);
+    if (pos) { node = pos.offsetNode; offset = pos.offset; }
+  } else if (document.caretRangeFromPoint) {
+    const range = document.caretRangeFromPoint(clientX, clientY);
+    if (range) { node = range.startContainer; offset = range.startOffset; }
+  }
+
+  let index = null;
+  if (node && mirror.contains(node)) {
+    const before = document.createRange();
+    before.setStart(mirror, 0);
+    before.setEnd(node, offset);
+    index = before.toString().length;
+  }
+  mirror.remove();
+  return index == null ? null : Math.max(0, Math.min(_textEditor.value.length, index));
 }
 
 // Shared: seed the draft, build the capture textarea, wire its listeners.
@@ -954,6 +951,9 @@ function _caretIndexFromClick(clientX, clientY) {
 // caretClick = client {x,y} of the opening mouse click, or null (F2 / menu).
 function _openTextEditor(draft, clientX, clientY, prefill, caretClick = null) {
   _textAnchor = { x: draft.x, y: draft.y };
+  // While editing, the textarea renders both glyphs and caret. Keeping those in
+  // one native layout is what makes selectionStart match the visible position.
+  draft.nativeEditor = true;
   _state.update((s) => { s.draftText = draft; });
 
   const wrap = _svg.closest(".canvas-wrap");
@@ -967,27 +967,30 @@ function _openTextEditor(draft, clientX, clientY, prefill, caretClick = null) {
   _textEditor.spellcheck = false;
   _textEditor.setAttribute("autocorrect", "off");
   _textEditor.setAttribute("autocapitalize", "off");
+  // SVG text wraps only at real newlines. Soft wrapping would make the editor
+  // show line breaks that do not exist in the stored/rendered string.
+  _textEditor.wrap = "off";
   _textEditor.style.left = (clientX - wr.left) + "px";
   _textEditor.style.top  = (clientY - wr.top - TEXT_HALF_LEADING_PX) + "px";
   _textEditor.value = prefill || "";
   _textEditor.rows = Math.max(1, (prefill || "").split("\n").length);
   _syncEditorFont();
+  _textEditor.style.transformOrigin = `0 ${TEXT_HALF_LEADING_PX}px`;
+  _textEditor.style.transform = draft.rotation ? `rotate(${draft.rotation}deg)` : "none";
   wrap.appendChild(_textEditor);
   _textEditor.focus();
   // Caret at end (not select-all) so editing existing text doesn't wipe it on
   // the first keystroke. F2 / context-menu keep this end caret.
   const _len = _textEditor.value.length;
   _textEditor.setSelectionRange(_len, _len);
-  // Mouse-click editing: drop the caret at the clicked character instead.
-  // Skip when the text is rotated — the overlay isn't rotated, so a screen-space
-  // x/y mapping would be wrong; fall back to the end caret in that case.
-  if (caretClick && !(draft.rotation)) {
+  // Mouse-click editing: let the browser map its own glyph layout to an index.
+  if (caretClick) {
     // Defer to the next frame so getBoundingClientRect/getComputedStyle read the
     // overlay AFTER layout (size/position settled) — otherwise the caret mapping
     // is measured against a stale box and snaps to 0/end.
     requestAnimationFrame(() => {
       if (!_textEditor) return;
-      const idx = _caretIndexFromClick(caretClick.x, caretClick.y);
+      const idx = _caretIndexFromPoint(caretClick.x, caretClick.y);
       if (idx != null) _textEditor.setSelectionRange(idx, idx);
     });
   }
@@ -1036,6 +1039,10 @@ function _syncEditorFont() {
   _textEditor.style.fontFamily = dt.fontFamily || DEFAULT_TEXT_FONT;
   _textEditor.style.fontWeight = dt.fontWeight || "normal";
   _textEditor.style.fontStyle  = dt.fontStyle  || "normal";
+  const deco = [];
+  if (dt.underline) deco.push("underline");
+  if (dt.strikeout) deco.push("line-through");
+  _textEditor.style.textDecoration = deco.join(" ") || "none";
   _syncEditorWidth();
 }
 
