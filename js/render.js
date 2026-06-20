@@ -1,4 +1,4 @@
-﻿/* ===== RENDER (DESIGN 1-1: SVG is a projection of state.objects) ===== */
+/* ===== RENDER (DESIGN 1-1: SVG is a projection of state.objects) ===== */
 //
 // render(state) repaints the <g id="scene"> from data. It is registered as a
 // store subscriber in main.js, so ANY state.update() repaints automatically ??// no caller ever invokes render() by hand. That is the data-as-truth proof.
@@ -7,7 +7,8 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom } from "./viewport.js?v=0.16.3";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.31.2";
+import { DEFAULT_TEXT_FONT } from "./state.js?v=0.31.2";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -54,8 +55,17 @@ export function render(state) {
   artboard.setAttribute("pointer-events", "none");
   scene.appendChild(artboard);
 
+  // ----- grid layer (between artboard and objects; never exported) -----
+  if (state.grid && state.grid.visible) {
+    scene.appendChild(renderGrid(state));
+  }
+
   // ----- committed objects (z-order = array order, DESIGN 1-1) -----
+  const _editingId = state.draftText && state.draftText.editingId;
   for (const obj of state.objects) {
+    // The object being re-edited is drawn by the draftText preview instead, so
+    // skip its committed render to avoid double text while editing.
+    if (_editingId && obj.id === _editingId) continue;
     const _layerId = obj.layerId ?? 1;
     const _layer = (state.layers || []).find(l => l.id === _layerId);
     if (_layer && _layer.visible === false) continue;
@@ -65,6 +75,71 @@ export function render(state) {
     if (!_isActive) el.setAttribute("opacity", "0.5");
     if (!_isActive) el.setAttribute("pointer-events", "none");
     scene.appendChild(el);
+  }
+
+  // ----- ruler guides: editing aids only; export builds from objects separately -----
+  const vb = state.viewBox;
+  for (const guide of state.guides || []) {
+    const group = document.createElementNS(SVG_NS, "g");
+    group.dataset.guideId = guide.id;
+
+    const setEnds = (line) => {
+      if (guide.axis === "x") {
+        line.setAttribute("x1", guide.position);
+        line.setAttribute("x2", guide.position);
+        line.setAttribute("y1", vb.y - vb.h);
+        line.setAttribute("y2", vb.y + vb.h * 2);
+      } else {
+        // Extend past the viewBox so SVG letterboxing cannot leave a visible
+        // gap between a horizontal guide and the left ruler.
+        line.setAttribute("x1", vb.x - vb.w);
+        line.setAttribute("x2", vb.x + vb.w * 2);
+        line.setAttribute("y1", guide.position);
+        line.setAttribute("y2", guide.position);
+      }
+    };
+
+    const line = document.createElementNS(SVG_NS, "line");
+    setEnds(line);
+    line.setAttribute("stroke", state.selectedGuideId === guide.id ? "#0550ae" : "#0969da");
+    line.setAttribute("stroke-width", state.selectedGuideId === guide.id ? "1.5" : "1");
+    line.setAttribute("stroke-opacity", state.selectedGuideId === guide.id ? "0.9" : "0.65");
+    line.setAttribute("vector-effect", "non-scaling-stroke");
+    line.setAttribute("pointer-events", "none");
+    group.appendChild(line);
+
+    // Only the margins outside the artboard are draggable. The visible line
+    // through the drawing area deliberately remains pointer-transparent.
+    const addDragZone = (x1, y1, x2, y2) => {
+      if (x1 === x2 && y1 === y2) return;
+      const hit = document.createElementNS(SVG_NS, "line");
+      hit.setAttribute("x1", x1);
+      hit.setAttribute("y1", y1);
+      hit.setAttribute("x2", x2);
+      hit.setAttribute("y2", y2);
+      hit.setAttribute("stroke", "transparent");
+      hit.setAttribute("stroke-width", "10");
+      hit.setAttribute("vector-effect", "non-scaling-stroke");
+      hit.dataset.guideId = guide.id;
+      hit.style.cursor = guide.axis === "x" ? "col-resize" : "row-resize";
+      group.appendChild(hit);
+    };
+    if (guide.axis === "x") {
+      const topEnd = Math.min(-_abH / 2, vb.y + vb.h);
+      const bottomStart = Math.max(_abH / 2, vb.y);
+      if (topEnd > vb.y) addDragZone(guide.position, vb.y, guide.position, topEnd);
+      if (bottomStart < vb.y + vb.h) {
+        addDragZone(guide.position, bottomStart, guide.position, vb.y + vb.h);
+      }
+    } else {
+      const leftEnd = Math.min(-_abW / 2, vb.x + vb.w);
+      const rightStart = Math.max(_abW / 2, vb.x);
+      if (leftEnd > vb.x) addDragZone(vb.x, guide.position, leftEnd, guide.position);
+      if (rightStart < vb.x + vb.w) {
+        addDragZone(rightStart, guide.position, vb.x + vb.w, guide.position);
+      }
+    }
+    scene.appendChild(group);
   }
 
   // ----- selection outline (blue dashed bbox; world space so it tracks zoom/pan) -----
@@ -92,14 +167,16 @@ export function render(state) {
   }
 
   for (const _sid of _selIds) {
-    if (_allSameGroup) continue; // combined rect already drawn above
     const sel = state.objects.find((o) => o.id === _sid);
     if (!sel) continue;
     const _selLayer = (state.layers || []).find(l => l.id === (sel.layerId ?? 1));
     if (_selLayer && _selLayer.visible === false) continue;
+    if (sel.positionLocked) renderPositionLockMarker(sel, scene, getZoom());
+    if (_allSameGroup) continue; // combined rect already drawn above
     const _selColor = (state.targetedId === _sid) ? "#e67700"
                     : sel.groupId  ? "#2f9e44"
                     : sel.locked   ? "#e53e3e"
+                    : sel.positionLocked ? "#8b5cf6"
                     : "var(--c-main, #0969da)";
     if (sel.type === "line") {
       // A line has no bbox; its selection guide is a dashed copy of the segment.
@@ -263,6 +340,139 @@ export function render(state) {
       scene.appendChild(el);
     }
   }
+
+  // ----- live text-editing preview (T tool): SAME renderText() path as the
+  // committed object → exact WYSIWYG. Plus a blue dashed outline so the editing
+  // area is visible. Editor-only: built into the live scene, never into
+  // buildExportSvg()/objects, so it is not exported or saved. -----
+  if (state.draftText && (state.draftText.text || "").length) {
+    const dt = state.draftText;
+    const tEl = renderText(dt);
+    tEl.dataset.ui = "draft-text";
+    scene.appendChild(tEl);
+    try {
+      const bb = tEl.getBBox();
+      const pad = 3 / getRenderScale(); // ~3 screen px of padding, zoom-stable
+      const box = document.createElementNS(SVG_NS, "rect");
+      box.setAttribute("x", bb.x - pad);
+      box.setAttribute("y", bb.y - pad);
+      box.setAttribute("width", bb.width + pad * 2);
+      box.setAttribute("height", bb.height + pad * 2);
+      box.setAttribute("fill", "none");
+      box.setAttribute("stroke-width", "0.4");
+      box.setAttribute("stroke-dasharray", "0.6 0.6");
+      box.style.stroke = "var(--c-main, #0969da)";
+      box.setAttribute("pointer-events", "none");
+      box.dataset.ui = "draft-text-outline";
+      scene.appendChild(box);
+    } catch (_) { /* not laid out yet */ }
+  }
+}
+
+function renderPositionLockMarker(obj, scene, zoom) {
+  const box = singleObjBBox(obj, scene);
+  if (!box) return;
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  const arm = 6 / zoom;
+  const gap = 2 / zoom;
+  const sw = 1.5 / zoom;
+  const marker = document.createElementNS(SVG_NS, "g");
+  marker.setAttribute("data-ui", "position-lock-anchor");
+  marker.setAttribute("pointer-events", "none");
+  for (const [x1, y1, x2, y2] of [
+    [cx - arm, cy, cx - gap, cy], [cx + gap, cy, cx + arm, cy],
+    [cx, cy - arm, cx, cy - gap], [cx, cy + gap, cx, cy + arm],
+  ]) {
+    const line = document.createElementNS(SVG_NS, "line");
+    line.setAttribute("x1", x1); line.setAttribute("y1", y1);
+    line.setAttribute("x2", x2); line.setAttribute("y2", y2);
+    line.setAttribute("stroke", "#8b5cf6");
+    line.setAttribute("stroke-width", sw);
+    line.setAttribute("stroke-linecap", "round");
+    marker.appendChild(line);
+  }
+  const dot = document.createElementNS(SVG_NS, "circle");
+  dot.setAttribute("cx", cx); dot.setAttribute("cy", cy);
+  dot.setAttribute("r", 1.5 / zoom);
+  dot.setAttribute("fill", "#8b5cf6");
+  marker.appendChild(dot);
+  scene.appendChild(marker);
+}
+
+/* ===== GRID LAYER (reference grid drawn on artboard; never in exports) ===== */
+function renderGrid(state) {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("id", "grid-layer");
+  g.setAttribute("pointer-events", "none");
+
+  const { w: abW, h: abH } = state.artboard;
+  const left   = -abW / 2;
+  const right  =  abW / 2;
+  const top    = -abH / 2;
+  const bottom =  abH / 2;
+
+  // 1-10 → 0.1-1.0, applied directly to stroke color so lines are fully black at max
+  const opacity = state.grid.opacity / 10;
+  const majorStroke = `rgba(0,0,0,${opacity.toFixed(2)})`;
+  const minorStroke = `rgba(0,0,0,${(opacity * 0.5).toFixed(2)})`;
+
+  const STEP  = state.grid.interval ?? 10;
+  const MAJOR = STEP * 5;
+
+  // Vertical lines (x = constant)
+  const xMin = Math.ceil(left  / STEP) * STEP;
+  const xMax = Math.floor(right / STEP) * STEP;
+  for (let x = xMin; x <= xMax; x += STEP) {
+    const isMajor = x % MAJOR === 0;
+    const ln = document.createElementNS(SVG_NS, "line");
+    ln.setAttribute("x1", x);  ln.setAttribute("y1", top);
+    ln.setAttribute("x2", x);  ln.setAttribute("y2", bottom);
+    ln.setAttribute("stroke", isMajor ? majorStroke : minorStroke);
+    ln.setAttribute("stroke-width", isMajor ? 0.3 : 0.2);
+    ln.setAttribute("vector-effect", "non-scaling-stroke");
+    g.appendChild(ln);
+    if (isMajor) {
+      const lbl = document.createElementNS(SVG_NS, "text");
+      lbl.setAttribute("x", x);
+      lbl.setAttribute("y", bottom + 1.5);
+      lbl.setAttribute("font-size", "1.8");
+      lbl.setAttribute("fill", majorStroke);
+      lbl.setAttribute("text-anchor", "middle");
+      lbl.setAttribute("dominant-baseline", "hanging");
+      lbl.setAttribute("font-family", "IBM Plex Mono, monospace");
+      lbl.textContent = String(x);
+      g.appendChild(lbl);
+    }
+  }
+
+  // Horizontal lines (y = constant)
+  const yMin = Math.ceil(top    / STEP) * STEP;
+  const yMax = Math.floor(bottom / STEP) * STEP;
+  for (let y = yMin; y <= yMax; y += STEP) {
+    const isMajor = y % MAJOR === 0;
+    const ln = document.createElementNS(SVG_NS, "line");
+    ln.setAttribute("x1", left);  ln.setAttribute("y1", y);
+    ln.setAttribute("x2", right); ln.setAttribute("y2", y);
+    ln.setAttribute("stroke", isMajor ? majorStroke : minorStroke);
+    ln.setAttribute("stroke-width", isMajor ? 0.3 : 0.2);
+    ln.setAttribute("vector-effect", "non-scaling-stroke");
+    g.appendChild(ln);
+    if (isMajor) {
+      const lbl = document.createElementNS(SVG_NS, "text");
+      lbl.setAttribute("x", left - 1);
+      lbl.setAttribute("y", y);
+      lbl.setAttribute("font-size", "1.8");
+      lbl.setAttribute("fill", majorStroke);
+      lbl.setAttribute("text-anchor", "end");
+      lbl.setAttribute("dominant-baseline", "middle");
+      lbl.setAttribute("font-family", "IBM Plex Mono, monospace");
+      lbl.textContent = String(y);
+      g.appendChild(lbl);
+    }
+  }
+
+  return g;
 }
 
 /* ----- per-object dispatch (one branch per shape type) ----- */
@@ -284,6 +494,8 @@ export function renderObject(obj) {
       return renderCurve(obj);
     case "text":
       return renderText(obj);
+    case "image":
+      return renderImage(obj);
     default:
       return null;
   }
@@ -640,10 +852,20 @@ function renderText(obj) {
   el.setAttribute("y", obj.y);
   el.setAttribute("font-size", obj.fontSize);
   el.setAttribute("fill", "#0d1117");
-  el.setAttribute("font-family", "IBM Plex Sans KR, sans-serif");
+  el.setAttribute("font-family", obj.fontFamily || DEFAULT_TEXT_FONT);
+  // Style fields — safe defaults so old text objects (without them) still render.
+  el.setAttribute("font-weight", obj.fontWeight || "normal");
+  el.setAttribute("font-style", obj.fontStyle || "normal");
+  const deco = [];
+  if (obj.underline) deco.push("underline");
+  if (obj.strikeout) deco.push("line-through");
+  if (deco.length) el.setAttribute("text-decoration", deco.join(" "));
   el.setAttribute("text-anchor", "start");
   el.setAttribute("dominant-baseline", "hanging");
   if (obj.id) el.dataset.id = obj.id;
+  // Optional rotation about the text's top-left anchor.
+  const rot = obj.rotation ?? 0;
+  if (rot) el.setAttribute("transform", `rotate(${rot},${obj.x},${obj.y})`);
 
   const lines = (obj.text || "").split("\n");
   if (lines.length === 1) {
@@ -656,6 +878,25 @@ function renderText(obj) {
       ts.textContent = line || "혻"; // non-breaking space keeps empty lines tall
       el.appendChild(ts);
     });
+  }
+  return el;
+}
+
+/* ----- image: embedded raster via SVG <image> (href = base64 data URL) ----- */
+function renderImage(obj) {
+  const el = document.createElementNS(SVG_NS, "image");
+  el.setAttribute("x", obj.x);
+  el.setAttribute("y", obj.y);
+  el.setAttribute("width", obj.w);
+  el.setAttribute("height", obj.h);
+  el.setAttribute("href", obj.src);
+  el.setAttribute("preserveAspectRatio", "none");
+  if (obj.id) el.dataset.id = obj.id;
+  const rot = obj.rotation ?? 0;
+  if (rot !== 0) {
+    const cx = obj.x + obj.w / 2;
+    const cy = obj.y + obj.h / 2;
+    el.setAttribute("transform", `rotate(${rot},${cx},${cy})`);
   }
   return el;
 }
@@ -755,7 +996,7 @@ export function makeFillPattern(obj) {
 /* ----- selection handles: 10-CSS-px white squares, zoom-invariant (DESIGN 5-2) ----- */
 /* ----- bbox of one object in world space (text uses its rendered <text> box) ----- */
 function singleObjBBox(o, scene) {
-  if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle") {
+  if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle" || o.type === "image") {
     const deg = o.rotation || 0;
     if (!deg) return { x: o.x, y: o.y, w: o.w, h: o.h };
     const cx = o.x + o.w / 2, cy = o.y + o.h / 2;
@@ -834,7 +1075,7 @@ function renderHandles(sel, scene, zoom, activeTool) {
 
   const _closedPoly  = sel.type === "polyline" && sel.closed === true;
   const _closedCurve = sel.type === "curve"    && sel.closed === true;
-  if (sel.type === "rect" || sel.type === "ellipse" || sel.type === "triangle" || _closedPoly || _closedCurve) {
+  if (sel.type === "rect" || sel.type === "ellipse" || sel.type === "triangle" || sel.type === "image" || _closedPoly || _closedCurve) {
     // Closed polyline/curve reuses branch-A handles on its (axis-aligned) points bbox;
     // neither has x/y/w/h or rotation field, so derive the box and pin deg to 0.
     let x, y, w, h, deg;

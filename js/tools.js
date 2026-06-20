@@ -1,4 +1,4 @@
-﻿/* ===== TOOLS (DESIGN 짠3 tool selection + the rectangle draw pipeline) ===== */
+/* ===== TOOLS (DESIGN 짠3 tool selection + the rectangle draw pipeline) ===== */
 //
 // Two responsibilities, both routed through the store so data stays the truth:
 //   1. Tool selection ??V (select) / R (rectangle), via buttons or keyboard.
@@ -11,13 +11,23 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getZoom } from "./viewport.js?v=0.16.3";
+import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.31.2";
+import {
+  TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX,
+  TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt,
+} from "./state.js?v=0.31.2";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.5; // world units (??.5mm on the 100mm artboard)
 const MIN_SIZE = 0.3; // world units; ignore stray clicks that draw nothing
 const HIT_TOL_PX = 6; // CSS px of slop around an edge so thin strokes are clickable
 const TEXT_EDITOR_PX = 14; // on-screen px of the text editor (matches .text-editor-overlay font-size)
+const TEXT_LINE_HEIGHT = 1.4; // matches .text-editor-overlay line-height AND renderText() tspan dy
+// A textarea centers its glyphs in the line box, so the first line sits half a
+// leading below the element top. The committed SVG <text> uses dominant-baseline:
+// hanging (glyph top AT the anchor), so we shift the editor up by that half-leading
+// to keep the draft and the final text from jumping vertically on commit.
+const TEXT_HALF_LEADING_PX = TEXT_EDITOR_PX * (TEXT_LINE_HEIGHT - 1) / 2;
 
 // A closed polyline keeps branch-B storage (point array) but takes branch-A
 // (face) interaction ??selectable by interior, ratio-resizable, rotatable.
@@ -40,6 +50,9 @@ export function initTools(svg, state) {
   setupDrawing();
   setupClickDrawing();
   setupTextTool();
+  setupTextClickToEdit();
+  setupTextEditShortcuts();
+  setupTextContextMenu();
 
   // Keep the tool buttons in sync with state.activeTool on every change.
   state.subscribe((s) => syncButtons(s.activeTool));
@@ -171,6 +184,16 @@ function setupDrawing() {
         }
       }
     });
+    // Double-click a text object → edit its content in place (DESIGN: like the
+    // group-member targeting above, detected via e.detail since re-render detaches
+    // the node before a real dblclick can fire).
+    if (hitId !== null && e.detail >= 2 && !shiftHeld) {
+      const _ho = _state.get().objects.find((o) => o.id === hitId);
+      if (_ho && _ho.type === "text") {
+        if (_textEditor) return; // already editing (e.g. opened by click-to-edit on press #1)
+        startEditingTextObject(hitId, { x: e.clientX, y: e.clientY }); return;
+      }
+    }
     if (hitId === null && _at === "V") {
       _marqueeStart = { x: p.x, y: p.y };
       _marqueeEl = document.createElementNS("http://www.w3.org/2000/svg", "rect");
@@ -233,10 +256,14 @@ function setupDrawing() {
       s.draft = null;
       // Only commit a real drag; a click with no movement draws nothing.
       if (isCommittable(shape)) {
+        // Snapshot the pre-creation objects so a single Ctrl+Z removes this shape.
+        const snap = JSON.parse(JSON.stringify(s.objects));
         shape.id = `obj_${Date.now().toString(36)}_${++_idCounter}`;
         shape.order = s.objects.length;
         shape.layerId = s.activeLayerId;
         s.objects.push(shape);
+        s.undoStack.push(snap);
+        s.redoStack = [];
         s.activeTool = "V"; // auto-return to select right after drawing (DESIGN 4-3)
       }
     });
@@ -291,6 +318,15 @@ function setupDrawing() {
     });
   });
 
+  window.addEventListener("pointercancel", () => {
+    drawing = false;
+    startWorld = null;
+    drawType = null;
+    _marqueeStart = null;
+    if (_marqueeEl) { _marqueeEl.remove(); _marqueeEl = null; }
+    _state.update((s) => { s.draft = null; });
+  });
+
   // NOTE: targeting a group member on double-click is handled in the mousedown
   // handler above (e.detail >= 2). A dblclick listener can't be used here: every
   // mousedown re-renders (scene.replaceChildren) and detaches the clicked node
@@ -321,7 +357,14 @@ function setupClickDrawing() {
     const tool = _state.get().activeTool;
     if (!CLICK_TOOLS[tool]) return;               // only L / P place points
     const vb = _state.get().viewBox;
-    draftPoints.push(screenToWorld(_svg, vb, e.clientX, e.clientY));
+    let cur = screenToWorld(_svg, vb, e.clientX, e.clientY);
+    // Apply the SAME Ctrl angle snap used for the live preview so the COMMITTED
+    // endpoint is identical to what the preview showed (no last-pixel drift —
+    // a horizontal preview commits an exactly horizontal line). See snapAngle.
+    if (e.ctrlKey && (tool === "L" || tool === "P") && draftPoints.length > 0) {
+      cur = snapAngle(draftPoints[draftPoints.length - 1], cur);
+    }
+    draftPoints.push(cur);
     clickTool = tool;
 
     if (tool === "L" && draftPoints.length === 2) { commitLine(); return; }
@@ -333,16 +376,10 @@ function setupClickDrawing() {
     if (!clickTool) return;
     const vb = _state.get().viewBox;
     let cur = screenToWorld(_svg, vb, e.clientX, e.clientY);
-    // Ctrl = 15° angle snap (line / polyline): snap the angle from the last placed
-    // vertex to the nearest 15° increment, then place the endpoint at the same distance.
+    // Ctrl = 15° angle snap (line / polyline). The preview uses the SAME shared
+    // snapAngle helper as the commit path above, so they can never diverge.
     if (e.ctrlKey && (clickTool === "L" || clickTool === "P") && draftPoints.length > 0) {
-      const anchor = draftPoints[draftPoints.length - 1];
-      const dx = cur.x - anchor.x;
-      const dy = cur.y - anchor.y;
-      const dist = Math.hypot(dx, dy);
-      const step = Math.PI / 12; // 15 degrees in radians
-      const snapped = Math.round(Math.atan2(dy, dx) / step) * step;
-      cur = { x: anchor.x + Math.cos(snapped) * dist, y: anchor.y + Math.sin(snapped) * dist };
+      cur = snapAngle(draftPoints[draftPoints.length - 1], cur);
     }
     mouseWorld = cur;
     updateDraftPreview();
@@ -362,6 +399,23 @@ function setupClickDrawing() {
     if (e.key === "Escape") { e.preventDefault(); resetClickDraft(); }
     else if (e.key === "Enter" && (clickTool === "P" || clickTool === "C")) { e.preventDefault(); finishPolyline(); }
   });
+}
+
+/* ----- Ctrl angle snap: snap the segment from `anchor` to `cur` to the nearest
+ * 15° increment, keeping the same length. For axis-aligned angles (0/90/180/270)
+ * the off-axis component is zeroed EXACTLY, so a horizontal stays exactly
+ * horizontal (p1.y === p2.y) and a vertical stays exactly vertical (p1.x === p2.x)
+ * with no float drift. Shared by BOTH the preview and the commit so they match. */
+function snapAngle(anchor, cur) {
+  const dx = cur.x - anchor.x, dy = cur.y - anchor.y;
+  const dist = Math.hypot(dx, dy);
+  const deg = Math.round((Math.atan2(dy, dx) * 180 / Math.PI) / 15) * 15;
+  const rad = (deg * Math.PI) / 180;
+  let nx = Math.cos(rad), ny = Math.sin(rad);
+  const n = ((deg % 360) + 360) % 360;
+  if (n === 0 || n === 180) ny = 0;   // horizontal: exact
+  if (n === 90 || n === 270) nx = 0;  // vertical: exact
+  return { x: anchor.x + nx * dist, y: anchor.y + ny * dist };
 }
 
 // Live preview = the placed segments PLUS a rubber-band from the last vertex to
@@ -390,10 +444,14 @@ function finishPolyline() {
 // flow (id + z-order assigned on commit), then auto-return to V (DESIGN 4-3).
 function commitClickShape(shape) {
   _state.update((s) => {
+    // Snapshot the pre-creation objects so a single Ctrl+Z removes this shape.
+    const snap = JSON.parse(JSON.stringify(s.objects));
     shape.id = `obj_${Date.now().toString(36)}_${++_idCounter}`;
     shape.order = s.objects.length;
     shape.layerId = s.activeLayerId;
     s.objects.push(shape);
+    s.undoStack.push(snap);
+    s.redoStack = [];
     s.draft = null;
     s.activeTool = "V";
   });
@@ -431,7 +489,7 @@ function hitTest(objects, p, tol = 0) {
     const o = objects[i];
     if (o.type !== "rect" && o.type !== "ellipse" && o.type !== "triangle" &&
         o.type !== "line" && o.type !== "polyline" && o.type !== "curve" &&
-        o.type !== "text") continue;
+        o.type !== "text" && o.type !== "image") continue;
 
     if (o.type === "text") {
       // Use the rendered SVG element's getBBox for an accurate hit area.
@@ -515,8 +573,8 @@ function hitTest(objects, p, tol = 0) {
       continue;
     }
 
-    if (o.type === "rect") {
-      // box == actual shape: outward-grown bbox containment (unchanged)
+    if (o.type === "rect" || o.type === "image") {
+      // box == actual shape: outward-grown bbox containment
       if (p.x >= o.x - margin && p.x <= o.x + o.w + margin &&
           p.y >= o.y - margin && p.y <= o.y + o.h + margin) return o.id;
       continue;
@@ -551,7 +609,7 @@ function hitTest(objects, p, tol = 0) {
 
 /* ----- axis-aligned bounding box of any object (for marquee intersection) ----- */
 function getObjectBBox(o) {
-  if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle") {
+  if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle" || o.type === "image") {
     return { x: o.x, y: o.y, w: o.w, h: o.h };
   }
   if (o.type === "line") {
@@ -636,6 +694,7 @@ function makeShape(type, a, b) {
     fillNone: false,
     fillStyle: "solid",   // "solid" | "dots" | "cross" | "hatch"
     locked: false,
+    positionLocked: false,
     layerId: 1,
     order: 0,              // assigned on commit (z-order within layer)
   };
@@ -659,6 +718,7 @@ function makeLine(a, b) {
     dashLength: 0,         // world units (mm); 0 = solid (no dasharray)
     dashGap: 0,            // world units (mm); 0 = solid
     locked: false,
+    positionLocked: false,
     layerId: 1,
     order: 0,              // assigned on commit (z-order within layer)
   };
@@ -685,6 +745,7 @@ function makePolyline(points) {
     fillNone: false,
     fillStyle: "solid",    // "solid" | "dots" | "cross" | "hatch"
     locked: false,
+    positionLocked: false,
     layerId: 1,
     order: 0,              // assigned on commit (z-order within layer)
   };
@@ -709,6 +770,7 @@ function makeCurve(points) {
     fillNone: false,
     fillStyle: "solid",    // "solid" | "dots" | "cross" | "hatch"
     locked: false,
+    positionLocked: false,
     layerId: 1,
     order: 0,
   };
@@ -755,13 +817,18 @@ function evalBezier(seg, t) {
   };
 }
 
-/* ===== TEXT TOOL (T) ===== */
+/* ===== TEXT TOOL (T) — create, edit-in-place, font menu, font modal ===== */
 //
-// Single-click places an inline <textarea> overlay at the click position.
-// Enter commits; Shift+Enter inserts a newline; ESC cancels.
-// On commit the textarea is removed and a text object is pushed to state.
+// A CAPTURE-ONLY <textarea> overlay (transparent text, only the caret shows)
+// receives keystrokes; the visible glyphs are drawn by render.js through
+// state.draftText using the SAME renderText() path as the committed object, so
+// the draft is exact WYSIWYG. The draft carries an `editingId`: null for new
+// text, or an existing object's id when re-editing it in place.
+//
+// Enter commits; Shift+Enter inserts a newline; ESC cancels (restoring the
+// original when editing an existing object).
 
-let _textEditor = null;     // the live <textarea>, or null
+let _textEditor = null;     // the live capture <textarea>, or null
 let _textAnchor = null;     // world-space {x,y} of the text origin
 let _textCancelled = false; // set by ESC so blur doesn't double-commit
 
@@ -772,85 +839,697 @@ function setupTextTool() {
     if (_state.get().activeTool !== "T") return;
     e.preventDefault();
 
-    // If an editor is already open (e.g. clicked canvas a second time while T
-    // is still active ??unusual path), commit it and return.  The blur will
-    // have already fired before mousedown so usually this guard won't trigger.
+    // Clicking again while an editor is open commits the current one first.
     if (_textEditor) { _commitText(); return; }
 
-    const vb = _state.get().viewBox;
-    _textAnchor = screenToWorld(_svg, vb, e.clientX, e.clientY);
-
-    const wrap = _svg.closest(".canvas-wrap");
-    const wr = wrap.getBoundingClientRect();
-
-    _textCancelled = false;
-    _textEditor = document.createElement("textarea");
-    _textEditor.className = "text-editor-overlay";
-    _textEditor.style.left = (e.clientX - wr.left) + "px";
-    _textEditor.style.top  = (e.clientY - wr.top)  + "px";
-    _textEditor.rows = 1;
-    wrap.appendChild(_textEditor);
-    _textEditor.focus();
-
-    _textEditor.addEventListener("keydown", (ke) => {
-      if (ke.key === "Escape") {
-        ke.preventDefault();
-        _textCancelled = true;
-        _removeTextEditor();
-      } else if (ke.key === "Enter" && !ke.shiftKey) {
-        ke.preventDefault();
-        _commitText();
-      }
-      // Shift+Enter falls through ??native newline in textarea
-    });
-
-    _textEditor.addEventListener("blur", () => {
-      if (!_textCancelled) _commitText();
-    });
+    const anchor = screenToWorld(_svg, _state.get().viewBox, e.clientX, e.clientY);
+    // WYSIWYG: desired on-screen px → WORLD units via the TRUE render scale.
+    const worldFontSize = DEFAULT_TEXT_SIZE_PX / getRenderScale();
+    _openTextEditor({
+      x: anchor.x, y: anchor.y, text: "",
+      fontSize: worldFontSize, fontFamily: DEFAULT_TEXT_FONT,
+      fontWeight: "normal", fontStyle: "normal",
+      underline: false, strikeout: false, rotation: 0,
+      editingId: null,
+    }, e.clientX, e.clientY, "");
   });
 }
 
-function _removeTextEditor() {
+// Begin editing an EXISTING text object in place: prefill the editor with its
+// content and copy ALL of its style into the draft, so the preview matches and
+// the commit preserves style + id. `clickPt` = client {x,y} of the mouse click
+// that opened the editor (or null for F2 / context-menu); when given, the caret
+// is placed at the clicked character instead of at the end.
+function startEditingTextObject(objId, clickPt = null) {
+  if (_textEditor) _commitText();
+  const s = _state.get();
+  const o = s.objects.find((x) => x.id === objId);
+  if (!o || o.type !== "text") return;
+  const sc = worldToScreen(_svg, s.viewBox, o.x, o.y);
+  _openTextEditor({
+    x: o.x, y: o.y, text: o.text || "",
+    fontSize: o.fontSize,
+    fontFamily: o.fontFamily || DEFAULT_TEXT_FONT,
+    fontWeight: o.fontWeight || "normal",
+    fontStyle: o.fontStyle || "normal",
+    underline: !!o.underline, strikeout: !!o.strikeout,
+    rotation: o.rotation ?? 0,
+    editingId: o.id,
+  }, sc.x, sc.y, o.text || "", clickPt);
+}
+
+/* ----- click → caret index: map a mouse click to the closest character index
+ * in the editor overlay, so editing-by-click drops the caret where the user
+ * clicked (not at the end). Measures with the SAME font as the overlay via a
+ * reusable canvas, and segments Korean correctly (Intl.Segmenter → graphemes,
+ * falling back to code-point iteration) so syllables are never split. */
+let _measureCanvas = null;
+function _measureCtx() {
+  if (!_measureCanvas) _measureCanvas = document.createElement("canvas");
+  return _measureCanvas.getContext("2d");
+}
+
+// Grapheme cluster boundaries of `line` as {start,end} string offsets (UTF-16).
+function _graphemeRanges(line) {
+  const out = [];
+  if (typeof Intl !== "undefined" && Intl.Segmenter) {
+    const seg = new Intl.Segmenter("ko", { granularity: "grapheme" });
+    for (const g of seg.segment(line)) out.push({ start: g.index, end: g.index + g.segment.length });
+    return out;
+  }
+  // Fallback: for-of respects code points, so it never splits surrogate pairs.
+  let idx = 0;
+  for (const ch of line) { out.push({ start: idx, end: idx + ch.length }); idx += ch.length; }
+  return out;
+}
+
+// Char offset within `line` (string index) closest to local x (px from line start).
+function _charOffsetInLine(line, localX, fontCss) {
+  if (localX <= 0 || line.length === 0) return 0;
+  const ctx = _measureCtx();
+  ctx.font = fontCss;
+  let prevW = 0;
+  for (const g of _graphemeRanges(line)) {
+    const w = ctx.measureText(line.slice(0, g.end)).width;
+    // Click before the cluster's horizontal midpoint → caret on its left side.
+    if (localX < (prevW + w) / 2) return g.start;
+    prevW = w;
+  }
+  return line.length;
+}
+
+// Caret index (UTF-16) in the overlay value for a client-space click point.
+function _caretIndexFromClick(clientX, clientY) {
+  if (!_textEditor) return null;
+  const rect = _textEditor.getBoundingClientRect();
+  const cs = getComputedStyle(_textEditor);
+  // The overlay is positioned in .canvas-wrap-relative px, but getBoundingClientRect
+  // is viewport px and excludes padding/border. On non-integer devicePixelRatio these
+  // disagree, so fold the textarea's own padding+border into the local-x/y origin.
+  const padL = parseFloat(cs.paddingLeft) || 0;
+  const bordL = parseFloat(cs.borderLeftWidth) || 0;
+  const padT = parseFloat(cs.paddingTop) || 0;
+  const bordT = parseFloat(cs.borderTopWidth) || 0;
+  const fontSizePx = parseFloat(cs.fontSize) || (TEXT_EDITOR_PX);
+  let lineH = parseFloat(cs.lineHeight);
+  if (!isFinite(lineH) || lineH <= 0) lineH = fontSizePx * TEXT_LINE_HEIGHT;
+  const fontCss = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+
+  const lines = _textEditor.value.split("\n");
+  // y → line index (each line box is lineH tall; clamp into range).
+  let li = Math.floor((clientY - rect.top - padT - bordT) / lineH);
+  li = Math.max(0, Math.min(lines.length - 1, li));
+  // base = chars before this line, counting one \n per preceding line.
+  let base = 0;
+  for (let i = 0; i < li; i++) base += lines[i].length + 1;
+  const localX = Math.max(0, clientX - rect.left - padL - bordL);
+  const off = _charOffsetInLine(lines[li], localX, fontCss);
+  // Clamp to a valid INSERTION boundary [0 .. value.length]. Never text.length-1,
+  // so the position AFTER the last character stays reachable.
+  return Math.max(0, Math.min(_textEditor.value.length, base + off));
+}
+
+// Shared: seed the draft, build the capture textarea, wire its listeners.
+// clientX/clientY = screen px of the text's top-left anchor.
+// caretClick = client {x,y} of the opening mouse click, or null (F2 / menu).
+function _openTextEditor(draft, clientX, clientY, prefill, caretClick = null) {
+  _textAnchor = { x: draft.x, y: draft.y };
+  _state.update((s) => { s.draftText = draft; });
+
+  const wrap = _svg.closest(".canvas-wrap");
+  const wr = wrap.getBoundingClientRect();
+
+  _textCancelled = false;
+  _textEditor = document.createElement("textarea");
+  _textEditor.className = "text-editor-overlay";
+  // This is a capture overlay, not for proofing — kill native spellcheck so the
+  // (misaligned, dpr-dependent) red underline never appears.
+  _textEditor.spellcheck = false;
+  _textEditor.setAttribute("autocorrect", "off");
+  _textEditor.setAttribute("autocapitalize", "off");
+  _textEditor.style.left = (clientX - wr.left) + "px";
+  _textEditor.style.top  = (clientY - wr.top - TEXT_HALF_LEADING_PX) + "px";
+  _textEditor.value = prefill || "";
+  _textEditor.rows = Math.max(1, (prefill || "").split("\n").length);
+  _syncEditorFont();
+  wrap.appendChild(_textEditor);
+  _textEditor.focus();
+  // Caret at end (not select-all) so editing existing text doesn't wipe it on
+  // the first keystroke. F2 / context-menu keep this end caret.
+  const _len = _textEditor.value.length;
+  _textEditor.setSelectionRange(_len, _len);
+  // Mouse-click editing: drop the caret at the clicked character instead.
+  // Skip when the text is rotated — the overlay isn't rotated, so a screen-space
+  // x/y mapping would be wrong; fall back to the end caret in that case.
+  if (caretClick && !(draft.rotation)) {
+    // Defer to the next frame so getBoundingClientRect/getComputedStyle read the
+    // overlay AFTER layout (size/position settled) — otherwise the caret mapping
+    // is measured against a stale box and snaps to 0/end.
+    requestAnimationFrame(() => {
+      if (!_textEditor) return;
+      const idx = _caretIndexFromClick(caretClick.x, caretClick.y);
+      if (idx != null) _textEditor.setSelectionRange(idx, idx);
+    });
+  }
+
+  _textEditor.addEventListener("input", () => {
+    _textEditor.rows = Math.max(1, _textEditor.value.split("\n").length);
+    _syncEditorWidth(); // keep trailing click-room past the (new) last character
+    const val = _textEditor.value;
+    _state.update((s) => { if (s.draftText) s.draftText.text = val; });
+  });
+
+  _textEditor.addEventListener("keydown", (ke) => {
+    if (ke.key === "Escape") {
+      ke.preventDefault();
+      _textCancelled = true;
+      _cancelText();
+    } else if (ke.key === "Enter" && !ke.shiftKey) {
+      ke.preventDefault();
+      _commitText();
+    }
+    // Shift+Enter falls through → native newline in textarea
+  });
+
+  _textEditor.addEventListener("blur", (be) => {
+    if (_textCancelled) return;
+    // Don't commit if focus moved into the font menu/modal — those refocus the
+    // editor afterwards so the draft survives the font change.
+    if (be.relatedTarget && _elInTextUI(be.relatedTarget)) return;
+    // A right-click (to open the font menu) also blurs the editor.
+    if (_rightMouseDown) return;
+    _commitText();
+  });
+}
+
+// True when an element lives inside the text context menu or the font modal.
+function _elInTextUI(el) {
+  return (_ctxMenu && _ctxMenu.contains(el)) || (_fontModal && _fontModal.contains(el));
+}
+
+// Keep the capture textarea's caret sized/styled to the draft (on-screen px).
+function _syncEditorFont() {
   if (!_textEditor) return;
-  const el = _textEditor;
-  _textEditor = null; // null first to prevent blur re-entrancy
+  const dt = _state.get().draftText;
+  if (!dt) return;
+  _textEditor.style.fontSize   = (dt.fontSize * getRenderScale()) + "px";
+  _textEditor.style.fontFamily = dt.fontFamily || DEFAULT_TEXT_FONT;
+  _textEditor.style.fontWeight = dt.fontWeight || "normal";
+  _textEditor.style.fontStyle  = dt.fontStyle  || "normal";
+  _syncEditorWidth();
+}
+
+// Grow the capture textarea to fit its widest line PLUS one trailing em, measured
+// with the editor's OWN font. The textarea uses white-space:pre + overflow:hidden,
+// so a fixed cols-based width clips long text and makes the region AFTER the last
+// character unclickable — the user then can't drop the caret at text.length. The
+// extra em guarantees a clickable insertion zone past the final glyph at any length.
+function _syncEditorWidth() {
+  if (!_textEditor) return;
+  const st = _textEditor.style;
+  const fontCss = `${st.fontStyle || "normal"} ${st.fontWeight || "normal"} ` +
+    `${st.fontSize || (TEXT_EDITOR_PX + "px")} ${st.fontFamily || DEFAULT_TEXT_FONT}`;
+  const ctx = _measureCtx();
+  ctx.font = fontCss;
+  let maxW = 0;
+  for (const line of _textEditor.value.split("\n")) {
+    const w = ctx.measureText(line).width;
+    if (w > maxW) maxW = w;
+  }
+  const em = parseFloat(st.fontSize) || TEXT_EDITOR_PX;
+  _textEditor.style.width = Math.ceil(maxW + em) + "px";
+}
+
+function _removeTextEditor() {
+  if (_textEditor) {
+    const el = _textEditor;
+    _textEditor = null; // null first to prevent blur re-entrancy
+    el.remove();
+  }
   _textAnchor = null;
-  el.remove();
+}
+
+// ESC / tool-switch: drop the draft, commit nothing. When editing an existing
+// object, render.js stops skipping it once draftText clears → original restored.
+function _cancelText() {
+  _removeTextEditor();
+  if (_state.get().draftText) _state.update((s) => { s.draftText = null; });
 }
 
 function _commitText() {
   if (!_textEditor) return;
-  const val = _textEditor.value;
-  const anchor = _textAnchor; // capture before removeTextEditor nulls it
+  const dt = _state.get().draftText;
+  const val = dt ? dt.text : _textEditor.value;
+  const fromTool = _state.get().activeTool === "T"; // new-text path
   _removeTextEditor();
-
-  // WYSIWYG: the editor shows TEXT_EDITOR_PX on screen; store the SAME on-screen
-  // size as WORLD units so the committed text renders identically. fontSize is in
-  // world units (mm), so screen px 첨 zoom; otherwise 14 is read as 14mm and the
-  // text balloons by the zoom factor (Bug 3).
-  const worldFontSize = TEXT_EDITOR_PX / getZoom();
+  if (!dt) return;
 
   _state.update((s) => {
-    if (val.trim()) {
+    if (dt.editingId) {
+      // Re-edit: update the SAME object (id preserved). Empty text → keep the
+      // original unchanged (prefer restore over delete). One undo entry.
+      const o = s.objects.find((x) => x.id === dt.editingId);
+      if (o && (val || "").trim()) {
+        const snap = JSON.parse(JSON.stringify(s.objects));
+        s.undoStack.push(snap);
+        s.redoStack = [];
+        o.text = val;
+        o.fontSize = dt.fontSize;
+        o.fontFamily = dt.fontFamily;
+        o.fontWeight = dt.fontWeight;
+        o.fontStyle = dt.fontStyle;
+        o.underline = dt.underline;
+        o.strikeout = dt.strikeout;
+      }
+    } else if ((val || "").trim()) {
+      // New text built from the SAME draft data shown while typing.
+      const snap = JSON.parse(JSON.stringify(s.objects));
+      s.undoStack.push(snap);
+      s.redoStack = [];
       s.objects.push({
         id: `obj_${Date.now().toString(36)}_${++_idCounter}`,
         type: "text",
-        x: anchor.x,
-        y: anchor.y,
-        text: val,
-        fontSize: worldFontSize,
-        rotation: 0,
-        locked: false,
-        layerId: s.activeLayerId,
-        order: s.objects.length,
+        x: dt.x, y: dt.y, text: val,
+        fontSize: dt.fontSize, fontFamily: dt.fontFamily,
+        fontWeight: dt.fontWeight, fontStyle: dt.fontStyle,
+        underline: dt.underline, strikeout: dt.strikeout,
+        rotation: 0, locked: false, positionLocked: false,
+        layerId: s.activeLayerId, order: s.objects.length,
       });
     }
-    s.activeTool = "V";
+    s.draftText = null;
+    if (fromTool) s.activeTool = "V"; // auto-return to select after new text
   });
 }
 
 function cancelActiveTextEditor() {
-  if (!_textEditor) return;
+  if (!_textEditor && !_state.get().draftText) return;
   _textCancelled = true;
-  _removeTextEditor();
+  _cancelText();
+}
+
+/* ----- CLICK-AGAIN-TO-EDIT: a no-drag click on an ALREADY-selected sole text
+ * object enters edit mode (DESIGN: text is directly editable, no context menu
+ * required). The first click that SELECTS a text only selects it; a subsequent
+ * click on the same (already sole-selected) text opens the in-place editor.
+ *
+ * Implemented across mousedown→move→up so it never fires mid-drag:
+ *   ??mousedown (capture, so we read the PRE-click selection before setupDrawing's
+ *     bubble handler runs) arms a candidate iff exactly that one text is selected
+ *     and the click lands on it.
+ *   ??any real pointer movement (a drag to MOVE the text) disarms the candidate.
+ *   ??a clean mouseup with the candidate still armed opens the editor.
+ * Non-text objects and multi-selection never arm, so normal select/drag/resize/
+ * rotate behavior is untouched. */
+let _editClickId = null;     // text id armed for click-to-edit on this press, or null
+let _editClickStart = null;  // {x,y} client px of the arming mousedown (drag detection)
+const EDIT_CLICK_TOL_PX = 4; // pointer movement beyond this = a drag, not a click
+
+function setupTextClickToEdit() {
+  // Capture phase: read selectedIds BEFORE setupDrawing's bubble mousedown.
+  _svg.addEventListener("mousedown", (e) => {
+    _editClickId = null;
+    _editClickStart = null;
+    if (e.button !== 0) return;            // left button only
+    if (spaceHeld) return;                  // Space+drag = pan
+    if (e.detail >= 2) return;              // double-click handled in setupDrawing
+    if (_textEditor) return;                // already editing
+    const s = _state.get();
+    if (s.activeTool !== "V") return;       // only the select tool edits-on-click
+    const ids = s.selectedIds || [];
+    if (ids.length !== 1) return;           // must be the SOLE selection
+    const o = s.objects.find((x) => x.id === ids[0]);
+    if (!o || o.type !== "text") return;    // ...and it must be a text object
+    // The click must actually land on THAT text (not empty space / another shape).
+    const vb = s.viewBox;
+    const tol = (HIT_TOL_PX * vb.w) / _svg.getBoundingClientRect().width;
+    const p = screenToWorld(_svg, vb, e.clientX, e.clientY);
+    if (hitTest(s.objects, p, tol) !== o.id) return;
+    _editClickId = o.id;
+    _editClickStart = { x: e.clientX, y: e.clientY };
+  }, true); // capture = true
+
+  // A drag (moving the text) cancels the pending edit-click.
+  window.addEventListener("mousemove", (e) => {
+    if (!_editClickId || !_editClickStart) return;
+    if (Math.hypot(e.clientX - _editClickStart.x, e.clientY - _editClickStart.y) > EDIT_CLICK_TOL_PX) {
+      _editClickId = null;
+      _editClickStart = null;
+    }
+  });
+
+  // Clean click (no drag) on the already-selected text → enter edit mode.
+  window.addEventListener("mouseup", (e) => {
+    if (e.button !== 0) return;
+    const id = _editClickId;
+    _editClickId = null;
+    _editClickStart = null;
+    if (id === null) return;
+    if (spaceHeld) return;
+    const o = _state.get().objects.find((x) => x.id === id);
+    if (!o || o.type !== "text") return;
+    startEditingTextObject(id, { x: e.clientX, y: e.clientY });
+  });
+}
+
+/* ----- F2 / Enter on a selected single text object → edit it in place ----- */
+function setupTextEditShortcuts() {
+  window.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (_textEditor) return;                                   // already editing
+    if (_fontModal && !_fontModal.hidden) return;              // modal owns keys
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    if (e.key !== "F2" && e.key !== "Enter") return;
+    const s = _state.get();
+    const ids = s.selectedIds || [];
+    if (ids.length !== 1) return;
+    const o = s.objects.find((x) => x.id === ids[0]);
+    if (!o || o.type !== "text") return;
+    e.preventDefault();
+    startEditingTextObject(o.id);
+  });
+}
+
+/* ===== TEXT CONTEXT MENU (right-click): 텍스트 수정 / 글꼴 설정... ===== */
+let _ctxMenu = null;          // the floating action menu element (built lazily)
+let _ctxEditItem = null;
+let _ctxFontItem = null;
+let _ctxTarget = null;        // { kind: "object"|"draft", id }
+let _rightMouseDown = false;  // true during a right-click so blur doesn't commit the draft
+
+function _buildCtxMenu() {
+  if (_ctxMenu) return;
+  _ctxMenu = document.createElement("div");
+  _ctxMenu.className = "text-ctx-menu";
+  _ctxMenu.hidden = true;
+
+  _ctxEditItem = document.createElement("button");
+  _ctxEditItem.type = "button";
+  _ctxEditItem.className = "text-ctx-item";
+  _ctxEditItem.textContent = "텍스트 수정";
+  _ctxEditItem.addEventListener("click", () => {
+    const id = (_ctxTarget && _ctxTarget.kind === "object") ? _ctxTarget.id : null;
+    _closeCtxMenu();
+    if (id) startEditingTextObject(id);
+  });
+
+  _ctxFontItem = document.createElement("button");
+  _ctxFontItem.type = "button";
+  _ctxFontItem.className = "text-ctx-item";
+  _ctxFontItem.textContent = "글꼴 설정...";
+  _ctxFontItem.addEventListener("click", () => {
+    const target = _ctxTarget;
+    _closeCtxMenu();
+    if (target) _openFontModal(target);
+  });
+
+  _ctxMenu.appendChild(_ctxEditItem);
+  _ctxMenu.appendChild(_ctxFontItem);
+  document.body.appendChild(_ctxMenu);
+  // Clicks inside the menu shouldn't close it via the window handler.
+  _ctxMenu.addEventListener("mousedown", (e) => e.stopPropagation());
+}
+
+function _closeCtxMenu() {
+  if (_ctxMenu) _ctxMenu.hidden = true;
+}
+
+function setupTextContextMenu() {
+  _svg.addEventListener("contextmenu", (e) => {
+    const s = _state.get();
+    let target = null;
+
+    if (s.draftText) {
+      // Editing a draft (new or in-place) → tune the draft; "텍스트 수정" hidden.
+      target = { kind: "draft", id: s.draftText.editingId || null };
+    } else {
+      const p = screenToWorld(_svg, s.viewBox, e.clientX, e.clientY);
+      const tol = HIT_TOL_PX / getZoom();
+      const hitId = hitTest(s.objects, p, tol);
+      const hitObj = hitId ? s.objects.find((o) => o.id === hitId) : null;
+      let obj = (hitObj && hitObj.type === "text") ? hitObj : null;
+      if (!obj && (s.selectedIds || []).length === 1) {
+        const sel = s.objects.find((o) => o.id === s.selectedIds[0]);
+        if (sel && sel.type === "text") obj = sel;
+      }
+      if (!obj) return; // not a text target → leave the native menu alone
+      target = { kind: "object", id: obj.id };
+      if (!(s.selectedIds || []).includes(obj.id)) {
+        _state.update((s2) => { s2.selectedIds = [obj.id]; s2.targetedId = null; });
+      }
+    }
+
+    e.preventDefault(); // suppress native menu for text targets
+    _buildCtxMenu();
+    _ctxTarget = target;
+    _ctxEditItem.style.display = target.kind === "object" ? "" : "none";
+    _ctxMenu.hidden = false;
+    // Position near the pointer, clamped into the viewport.
+    const mw = 160, mh = 76;
+    const left = Math.min(e.clientX, window.innerWidth - mw);
+    const top = Math.min(e.clientY, window.innerHeight - mh);
+    _ctxMenu.style.left = Math.max(4, left) + "px";
+    _ctxMenu.style.top = Math.max(4, top) + "px";
+  });
+
+  // Outside click closes the menu. A right mousedown sets a short-lived flag so
+  // the editor's blur handler won't commit the draft while the menu is opening.
+  window.addEventListener("mousedown", (e) => {
+    if (e.button === 2) { _rightMouseDown = true; setTimeout(() => { _rightMouseDown = false; }, 0); }
+    if (_ctxMenu && !_ctxMenu.hidden) _closeCtxMenu();
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && _ctxMenu && !_ctxMenu.hidden) _closeCtxMenu();
+  });
+}
+
+/* ===== FONT SETTINGS MODAL (글꼴 설정) =====
+ * Windows-style font dialog: family / style / size / effects + live preview.
+ * Edits a WORKING COPY; only 확인 applies. Object edits = one undo entry; draft
+ * edits flow into the committed text. Size is shown in points (stored fontSize
+ * stays world-unit mm; converted via ptToMm/mmToPt). */
+let _fontModal = null;        // overlay element (built lazily)
+let _fmFamily = null, _fmStyle = null, _fmSizeInput = null, _fmSizeList = null;
+let _fmUnderline = null, _fmStrikeout = null, _fmPreview = null;
+let _fmTarget = null;         // { kind, id }
+let _fmWork = null;           // working copy: { fontFamily, fontWeight, fontStyle, underline, strikeout, pt }
+
+function _buildFontModal() {
+  if (_fontModal) return;
+  _fontModal = document.createElement("div");
+  _fontModal.className = "font-modal-overlay";
+  _fontModal.hidden = true;
+
+  const box = document.createElement("div");
+  box.className = "font-modal";
+
+  const header = document.createElement("div");
+  header.className = "font-modal-header";
+  header.textContent = "글꼴 설정";
+  box.appendChild(header);
+
+  const body = document.createElement("div");
+  body.className = "font-modal-body";
+
+  // family column
+  const famCol = document.createElement("div");
+  famCol.className = "fm-col";
+  const famLbl = document.createElement("label");
+  famLbl.className = "fm-label"; famLbl.textContent = "글꼴";
+  _fmFamily = document.createElement("select");
+  _fmFamily.className = "fm-list"; _fmFamily.size = 7;
+  TEXT_FONTS.forEach((f) => {
+    const opt = document.createElement("option");
+    opt.value = f.css; opt.textContent = f.label;
+    _fmFamily.appendChild(opt);
+  });
+  famCol.appendChild(famLbl); famCol.appendChild(_fmFamily);
+
+  // style column
+  const styCol = document.createElement("div");
+  styCol.className = "fm-col";
+  const styLbl = document.createElement("label");
+  styLbl.className = "fm-label"; styLbl.textContent = "글꼴 스타일";
+  _fmStyle = document.createElement("select");
+  _fmStyle.className = "fm-list"; _fmStyle.size = 7;
+  TEXT_STYLES.forEach((st, i) => {
+    const opt = document.createElement("option");
+    opt.value = String(i); opt.textContent = st.label;
+    _fmStyle.appendChild(opt);
+  });
+  styCol.appendChild(styLbl); styCol.appendChild(_fmStyle);
+
+  // size column
+  const szCol = document.createElement("div");
+  szCol.className = "fm-col fm-col-size";
+  const szLbl = document.createElement("label");
+  szLbl.className = "fm-label"; szLbl.textContent = "크기";
+  _fmSizeInput = document.createElement("input");
+  _fmSizeInput.type = "number"; _fmSizeInput.min = "1"; _fmSizeInput.max = "400"; _fmSizeInput.step = "1";
+  _fmSizeInput.className = "fm-size-input";
+  _fmSizeList = document.createElement("select");
+  _fmSizeList.className = "fm-list"; _fmSizeList.size = 6;
+  TEXT_SIZE_PRESETS.forEach((pt) => {
+    const opt = document.createElement("option");
+    opt.value = String(pt); opt.textContent = String(pt);
+    _fmSizeList.appendChild(opt);
+  });
+  szCol.appendChild(szLbl); szCol.appendChild(_fmSizeInput); szCol.appendChild(_fmSizeList);
+
+  body.appendChild(famCol); body.appendChild(styCol); body.appendChild(szCol);
+  box.appendChild(body);
+
+  // effects
+  const fx = document.createElement("div");
+  fx.className = "fm-effects";
+  const fxLbl = document.createElement("span");
+  fxLbl.className = "fm-label"; fxLbl.textContent = "효과";
+  const strikeLbl = document.createElement("label");
+  _fmStrikeout = document.createElement("input"); _fmStrikeout.type = "checkbox";
+  strikeLbl.appendChild(_fmStrikeout); strikeLbl.appendChild(document.createTextNode(" 취소선"));
+  const underLbl = document.createElement("label");
+  _fmUnderline = document.createElement("input"); _fmUnderline.type = "checkbox";
+  underLbl.appendChild(_fmUnderline); underLbl.appendChild(document.createTextNode(" 밑줄"));
+  fx.appendChild(fxLbl); fx.appendChild(strikeLbl); fx.appendChild(underLbl);
+  box.appendChild(fx);
+
+  // preview
+  const pvWrap = document.createElement("div");
+  pvWrap.className = "fm-preview-wrap";
+  const pvLbl = document.createElement("div");
+  pvLbl.className = "fm-label"; pvLbl.textContent = "미리보기";
+  _fmPreview = document.createElement("div");
+  _fmPreview.className = "fm-preview";
+  _fmPreview.textContent = "AaBbYyZz 가나다라";
+  pvWrap.appendChild(pvLbl); pvWrap.appendChild(_fmPreview);
+  box.appendChild(pvWrap);
+
+  // footer buttons
+  const footer = document.createElement("div");
+  footer.className = "font-modal-footer";
+  const okBtn = document.createElement("button");
+  okBtn.type = "button"; okBtn.className = "fm-btn fm-ok"; okBtn.textContent = "확인";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button"; cancelBtn.className = "fm-btn fm-cancel"; cancelBtn.textContent = "취소";
+  footer.appendChild(okBtn); footer.appendChild(cancelBtn);
+  box.appendChild(footer);
+
+  _fontModal.appendChild(box);
+  document.body.appendChild(_fontModal);
+
+  // wiring — preview-only until 확인
+  _fmFamily.addEventListener("change", () => { _fmWork.fontFamily = _fmFamily.value; _refreshFontPreview(); });
+  _fmStyle.addEventListener("change", () => {
+    const st = TEXT_STYLES[parseInt(_fmStyle.value, 10)] || TEXT_STYLES[0];
+    _fmWork.fontWeight = st.fontWeight; _fmWork.fontStyle = st.fontStyle; _refreshFontPreview();
+  });
+  _fmSizeList.addEventListener("change", () => {
+    _fmSizeInput.value = _fmSizeList.value;
+    _fmWork.pt = parseFloat(_fmSizeList.value) || _fmWork.pt; _refreshFontPreview();
+  });
+  _fmSizeInput.addEventListener("input", () => {
+    const v = parseFloat(_fmSizeInput.value);
+    if (isFinite(v) && v > 0) { _fmWork.pt = v; _refreshFontPreview(); }
+  });
+  _fmUnderline.addEventListener("change", () => { _fmWork.underline = _fmUnderline.checked; _refreshFontPreview(); });
+  _fmStrikeout.addEventListener("change", () => { _fmWork.strikeout = _fmStrikeout.checked; _refreshFontPreview(); });
+
+  okBtn.addEventListener("click", _applyFontModal);
+  cancelBtn.addEventListener("click", _closeFontModal);
+  _fontModal.addEventListener("mousedown", (e) => { if (e.target === _fontModal) _closeFontModal(); });
+  // Keyboard: Escape cancels, Enter applies (Phase 4.9).
+  _fontModal.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); _closeFontModal(); }
+    else if (e.key === "Enter") { e.preventDefault(); _applyFontModal(); }
+  });
+}
+
+function _refreshFontPreview() {
+  if (!_fmPreview || !_fmWork) return;
+  _fmPreview.style.fontFamily = _fmWork.fontFamily;
+  _fmPreview.style.fontWeight = _fmWork.fontWeight;
+  _fmPreview.style.fontStyle  = _fmWork.fontStyle;
+  _fmPreview.style.fontSize   = _fmWork.pt + "pt";
+  const deco = [];
+  if (_fmWork.underline) deco.push("underline");
+  if (_fmWork.strikeout) deco.push("line-through");
+  _fmPreview.style.textDecoration = deco.join(" ") || "none";
+}
+
+function _openFontModal(target) {
+  _buildFontModal();
+  _fmTarget = target;
+
+  const s = _state.get();
+  const src = target.kind === "object"
+    ? s.objects.find((o) => o.id === target.id)
+    : s.draftText;
+  if (!src) return;
+
+  _fmWork = {
+    fontFamily: src.fontFamily || DEFAULT_TEXT_FONT,
+    fontWeight: src.fontWeight || "normal",
+    fontStyle:  src.fontStyle  || "normal",
+    underline:  !!src.underline,
+    strikeout:  !!src.strikeout,
+    pt: Math.round(mmToPt(src.fontSize) * 10) / 10,
+  };
+
+  _fmFamily.value = _fmWork.fontFamily;
+  const styleIdx = TEXT_STYLES.findIndex((st) => st.fontWeight === _fmWork.fontWeight && st.fontStyle === _fmWork.fontStyle);
+  _fmStyle.value = String(styleIdx < 0 ? 0 : styleIdx);
+  _fmSizeInput.value = _fmWork.pt;
+  _fmSizeList.value = String(_fmWork.pt); // no-op if pt isn't a preset
+  _fmUnderline.checked = _fmWork.underline;
+  _fmStrikeout.checked = _fmWork.strikeout;
+  _refreshFontPreview();
+
+  _fontModal.hidden = false;
+  _fmFamily.focus();
+}
+
+function _closeFontModal() {
+  if (_fontModal) _fontModal.hidden = true;
+  _fmTarget = null;
+  _fmWork = null;
+  if (_textEditor) _textEditor.focus(); // resume draft editing if still open
+}
+
+function _applyFontModal() {
+  if (!_fmTarget || !_fmWork) { _closeFontModal(); return; }
+  const w = _fmWork;
+  const fields = {
+    fontFamily: w.fontFamily,
+    fontWeight: w.fontWeight,
+    fontStyle:  w.fontStyle,
+    underline:  w.underline,
+    strikeout:  w.strikeout,
+    fontSize:   ptToMm(w.pt),
+  };
+  if (_fmTarget.kind === "object") {
+    _state.update((s) => {
+      const o = s.objects.find((x) => x.id === _fmTarget.id);
+      if (!o || o.type !== "text") return;
+      const snap = JSON.parse(JSON.stringify(s.objects));
+      s.undoStack.push(snap);
+      s.redoStack = [];
+      Object.assign(o, fields);
+    });
+  } else {
+    _state.update((s) => { if (s.draftText) Object.assign(s.draftText, fields); });
+    _syncEditorFont();
+  }
+  _closeFontModal();
+}
+
+// Open the font modal for the current selection / active draft. Used by the
+// inspector "글꼴 설정..." button so both UIs share one modal + one field set.
+export function openFontModalForSelection() {
+  const s = _state.get();
+  if (s.draftText) { _openFontModal({ kind: "draft", id: s.draftText.editingId || null }); return; }
+  const ids = s.selectedIds || [];
+  if (ids.length !== 1) return;
+  const o = s.objects.find((x) => x.id === ids[0]);
+  if (o && o.type === "text") _openFontModal({ kind: "object", id: o.id });
 }
