@@ -71,16 +71,22 @@
       </div>
 
       <div class="canvas-wrap">
-        <!-- viewBox is the single coordinate authority (DESIGN 1-2) -->
-        <svg
-          id="canvas"
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 100 100"
-          preserveAspectRatio="xMidYMid meet"
-        >
-          <!-- render.js paints state.objects into this group -->
-          <g id="scene"></g>
-        </svg>
+        <!-- ruler-container: CSS grid - corner | h-ruler / v-ruler | canvas -->
+        <div class="ruler-container" id="ruler-container">
+          <div class="ruler-corner"></div>
+          <canvas id="ruler-h" class="ruler ruler-h"></canvas>
+          <canvas id="ruler-v" class="ruler ruler-v"></canvas>
+          <!-- viewBox is the single coordinate authority (DESIGN 1-2) -->
+          <svg
+            id="canvas"
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 100 100"
+            preserveAspectRatio="xMidYMid meet"
+          >
+            <!-- render.js paints state.objects into this group -->
+            <g id="scene"></g>
+          </svg>
+        </div>
       </div>
     </main>
 
@@ -103,6 +109,6 @@
 
   <!-- ===== MODULES (load order matters: store → state → viewport → render → main) ===== -->
   <!-- ?v= busts the ES-module cache so edits actually load (DESIGN: cache-bust) -->
-  <script type="module" src="js/main.js?v=0.16.3"></script>
+  <script type="module" src="js/main.js?v=0.27.0"></script>
 </body>
 </html>

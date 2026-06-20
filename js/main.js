@@ -15,6 +15,7 @@ import { initTransform } from "./transform.js?v=0.16.3";
 import { initInspector } from "./inspector.js?v=0.16.3";
 import { initProjectIO } from "./project-io.js?v=0.16.3";
 import { initExportDialog } from "./export-dialog.js?v=0.16.3";
+import { initRuler } from "./ruler.js?v=0.27.0";
 
 const svg = document.getElementById("canvas");
 const zoomReadout = document.getElementById("zoom-readout");
@@ -73,6 +74,9 @@ initProjectIO(state);
 
 /* ----- export dialog: ?뚯씪 dropdown ???대?吏濡??대낫?닿린 (PNG/SVG) ----- */
 initExportDialog(state);
+
+/* ----- rulers: top + left ruler canvases synced to viewport ----- */
+initRuler(svg, state);
 
 /* ----- initial paint ----- */
 applyViewBox(state.get());
