@@ -7,8 +7,8 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.40.2";
-import { DEFAULT_TEXT_FONT } from "./state.js?v=0.40.2";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.40.3";
+import { DEFAULT_TEXT_FONT } from "./state.js?v=0.40.3";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -1160,7 +1160,7 @@ function renderHandles(sel, scene, zoom, activeTool) {
   const makeHandle = (wx, wy, label, easierPointerTarget = false) => {
     if (easierPointerTarget) {
       const hit = document.createElementNS(SVG_NS, "rect");
-      const hitHalf = 9 / zoom;
+      const hitHalf = 12 / zoom;
       hit.setAttribute("x", wx - hitHalf);
       hit.setAttribute("y", wy - hitHalf);
       hit.setAttribute("width", hitHalf * 2);

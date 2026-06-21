@@ -13,9 +13,9 @@
 // we can distinguish "click on already-selected ??move allowed" from "click
 // selects a new object ??just select, no move this press."
 
-import { screenToWorld, getRenderScale } from "./viewport.js?v=0.40.2";
-import { resolveSnap } from "./snap.js?v=0.40.2";
-import { setSnapPreview } from "./render.js?v=0.40.2";
+import { screenToWorld, getRenderScale } from "./viewport.js?v=0.40.3";
+import { resolveSnap } from "./snap.js?v=0.40.3";
+import { setSnapPreview } from "./render.js?v=0.40.3";
 
 /* ----- shared lock guard: locked objects are excluded from mutating ops ----- */
 function isMutable(o) { return o && !o.locked; }
@@ -230,15 +230,15 @@ function snapLineEndpoint(anchor, point) {
   return { x: anchor.x + ux * distance, y: anchor.y + uy * distance };
 }
 
-function applyHandleDeltaBase(obj, orig, handle, dx, dy, shiftKey) {
+function applyHandleDeltaBase(obj, orig, handle, dx, dy, shiftKey, ctrlKey) {
   // Branch B: endpoint handles (line / polyline / curve)
   if (obj.type === "line") {
     if (handle === "p0") {
       const dragged = { x: orig.p1.x + dx, y: orig.p1.y + dy };
-      obj.p1 = shiftKey ? snapLineEndpoint(orig.p2, dragged) : dragged;
+      obj.p1 = ctrlKey ? snapLineEndpoint(orig.p2, dragged) : dragged;
     } else {
       const dragged = { x: orig.p2.x + dx, y: orig.p2.y + dy };
-      obj.p2 = shiftKey ? snapLineEndpoint(orig.p1, dragged) : dragged;
+      obj.p2 = ctrlKey ? snapLineEndpoint(orig.p1, dragged) : dragged;
     }
     return;
   }
@@ -324,8 +324,8 @@ function applyHandleDeltaBase(obj, orig, handle, dx, dy, shiftKey) {
 }
 
 /* positionLocked resize uses the original center as its fixed anchor. */
-function applyHandleDelta(obj, orig, handle, dx, dy, shiftKey) {
-  applyHandleDeltaBase(obj, orig, handle, dx, dy, shiftKey);
+function applyHandleDelta(obj, orig, handle, dx, dy, shiftKey, ctrlKey) {
+  applyHandleDeltaBase(obj, orig, handle, dx, dy, shiftKey, ctrlKey);
   if (!orig.positionLocked) return;
   const before = objectCenter(orig);
   const after = objectCenter(obj);
@@ -1109,7 +1109,7 @@ export function initTransform(svg, state) {
       state.update((s) => {
         const obj = s.objects.find((o) => o.id === _handleOrigObj.id);
         if (!obj) return;
-        applyHandleDelta(obj, _handleOrigObj, _handleId, dx, dy, e.shiftKey);
+        applyHandleDelta(obj, _handleOrigObj, _handleId, dx, dy, e.shiftKey, e.ctrlKey);
       });
       if (!_didMove && Math.hypot(dx, dy) > MOVE_THRESHOLD) _didMove = true;
       return;

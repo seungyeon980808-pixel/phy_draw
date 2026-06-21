@@ -11,17 +11,17 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.40.2";
+import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.40.3";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt,
-} from "./state.js?v=0.40.2";
+} from "./state.js?v=0.40.3";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
 const MIN_SIZE = 0.3; // world units; ignore stray clicks that draw nothing
 const HIT_TOL_PX = 6; // CSS px of slop around an edge so thin strokes are clickable
-const LINE_HIT_TOL_PX = 9; // screen-space slop for line-family segments
+const LINE_HIT_TOL_PX = 20; // screen-space slop for line-family segments
 const TEXT_EDITOR_PX = 14; // on-screen px of the text editor (matches .text-editor-overlay font-size)
 const TEXT_LINE_HEIGHT = 1.4; // matches .text-editor-overlay line-height AND renderText() tspan dy
 // A textarea centers its glyphs in the line box, so the first line sits half a
@@ -127,6 +127,18 @@ function constrainShapeEnd(type, start, end, shiftHeld) {
   return {
     x: start.x + (dx < 0 ? -size : size),
     y: start.y + (dy < 0 ? -size : size),
+  };
+}
+
+function snapLineEnd(start, end, ctrlHeld) {
+  if (!ctrlHeld) return end;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const distance = Math.hypot(dx, dy);
+  const angle = Math.round(Math.atan2(dy, dx) / (Math.PI / 12)) * (Math.PI / 12);
+  return {
+    x: start.x + Math.cos(angle) * distance,
+    y: start.y + Math.sin(angle) * distance,
   };
 }
 
@@ -245,7 +257,9 @@ function setupDrawing() {
     const pointer = screenToWorld(_svg, vb, e.clientX, e.clientY);
     // Shift = aspect-ratio lock: force w === h (perfect square / circle) using the
     // larger of the two extents, preserving the drag direction on each axis.
-    const cur = constrainShapeEnd(drawType, startWorld, pointer, e.shiftKey);
+    const cur = drawType === "line"
+      ? snapLineEnd(startWorld, pointer, e.ctrlKey)
+      : constrainShapeEnd(drawType, startWorld, pointer, e.shiftKey);
     _state.update((s) => { s.draft = makeShape(drawType, startWorld, cur); });
   });
 
@@ -254,7 +268,9 @@ function setupDrawing() {
     drawing = false;
     const vb = _state.get().viewBox;
     const pointer = screenToWorld(_svg, vb, e.clientX, e.clientY);
-    const cur = constrainShapeEnd(drawType, startWorld, pointer, e.shiftKey);
+    const cur = drawType === "line"
+      ? snapLineEnd(startWorld, pointer, e.ctrlKey)
+      : constrainShapeEnd(drawType, startWorld, pointer, e.shiftKey);
     const shape = makeShape(drawType, startWorld, cur);
     startWorld = null;
     drawType = null;
