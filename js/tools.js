@@ -11,11 +11,11 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.41.0";
+import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.42.0";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt,
-} from "./state.js?v=0.41.0";
+} from "./state.js?v=0.42.0";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -567,7 +567,8 @@ function hitTest(objects, p, tol = 0, lineTol = tol) {
     const o = objects[i];
     if (o.type !== "rect" && o.type !== "ellipse" && o.type !== "triangle" &&
         o.type !== "line" && o.type !== "polyline" && o.type !== "curve" &&
-        o.type !== "text" && o.type !== "image" && o.type !== "axes") continue;
+        o.type !== "text" && o.type !== "image" && o.type !== "axes" &&
+        o.type !== "anglearc") continue;
 
     if (o.type === "text") {
       // Use the rendered SVG element's getBBox for an accurate hit area.
@@ -660,6 +661,15 @@ function hitTest(objects, p, tol = 0, lineTol = tol) {
       continue;
     }
 
+    if (o.type === "anglearc") {
+      // Selects as ONE indivisible object via its vertex-centered square bbox
+      // (the transparent pie-sector body also makes the wedge a drag target).
+      const r = o.radius || 0;
+      if (p.x >= o.x - r - margin && p.x <= o.x + r + margin &&
+          p.y >= o.y - r - margin && p.y <= o.y + r + margin) return o.id;
+      continue;
+    }
+
     if (o.type === "ellipse") {
       // inside the ellipse curve, grown outward by margin on each radius
       const rx = o.w / 2 + margin, ry = o.h / 2 + margin;
@@ -691,6 +701,10 @@ function hitTest(objects, p, tol = 0, lineTol = tol) {
 function getObjectBBox(o) {
   if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle" || o.type === "image" || o.type === "axes") {
     return { x: o.x, y: o.y, w: o.w, h: o.h };
+  }
+  if (o.type === "anglearc") {
+    const r = o.radius || 0;
+    return { x: o.x - r, y: o.y - r, w: 2 * r, h: 2 * r };
   }
   if (o.type === "line") {
     return {

@@ -7,8 +7,8 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.41.0";
-import { DEFAULT_TEXT_FONT } from "./state.js?v=0.41.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.42.0";
+import { DEFAULT_TEXT_FONT } from "./state.js?v=0.42.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -566,6 +566,8 @@ export function renderObject(obj) {
       return renderImage(obj);
     case "axes":
       return renderAxes(obj);
+    case "anglearc":
+      return renderAngleArc(obj);
     default:
       return null;
   }
@@ -1115,6 +1117,76 @@ function renderAxes(obj) {
   return g;
 }
 
+/* ----- anglearc: one atomic symbol — the angle θ drawn in a SINGLE pass.
+ * Geometry lives in data (vertex x/y, radius, startAngle, sweepAngle in MATH
+ * convention: CCW positive, +Y up). The drawn arc + label are pure PROJECTIONS;
+ * the two rays are intentionally NOT drawn (the user adds those with the line
+ * tool). A transparent pie-sector body makes the whole wedge ONE solid
+ * click/drag target — mirroring how renderAxes lays a transparent body so the
+ * symbol behaves as one indivisible object. Rotation is encoded in startAngle
+ * (no group transform), keeping the arc data-as-truth. ----- */
+function renderAngleArc(obj) {
+  const g = document.createElementNS(SVG_NS, "g");
+  if (obj.id) g.dataset.id = obj.id;
+
+  const vx = obj.x, vy = obj.y;                 // vertex (world/SVG coords)
+  const r = Math.max(obj.radius || 0, 0.0001);
+  const a0 = obj.startAngle || 0;
+  const sweep = obj.sweepAngle ?? 0;
+  const a1 = a0 + sweep;
+  const color = grayHex(obj.strokeLevel);
+  const sw = obj.strokeWidth || 0.2;
+
+  // math angle (deg, CCW, +Y up) → SVG point (y down): up = smaller SVG y.
+  const pt = (deg) => {
+    const rad = (deg * Math.PI) / 180;
+    return { x: vx + r * Math.cos(rad), y: vy - r * Math.sin(rad) };
+  };
+  const p0 = pt(a0), p1 = pt(a1);
+  const largeArc = Math.abs(sweep) > 180 ? 1 : 0;
+  // math CCW (screen counterclockwise) = SVG sweep-flag 0; CW (negative) = 1.
+  const sweepFlag = sweep >= 0 ? 0 : 1;
+
+  // Transparent pie-sector body (vertex → start → arc → close): one solid target.
+  const body = document.createElementNS(SVG_NS, "path");
+  body.setAttribute("d",
+    `M ${vx} ${vy} L ${p0.x} ${p0.y} ` +
+    `A ${r} ${r} 0 ${largeArc} ${sweepFlag} ${p1.x} ${p1.y} Z`);
+  body.setAttribute("fill", "transparent");
+  body.setAttribute("stroke", "none");
+  g.appendChild(body);
+
+  // The visible arc (no fill).
+  const arc = document.createElementNS(SVG_NS, "path");
+  arc.setAttribute("d",
+    `M ${p0.x} ${p0.y} A ${r} ${r} 0 ${largeArc} ${sweepFlag} ${p1.x} ${p1.y}`);
+  arc.setAttribute("fill", "none");
+  arc.setAttribute("stroke", color);
+  arc.setAttribute("stroke-width", sw);
+  g.appendChild(arc);
+
+  // Label (default θ) at the arc midpoint, just OUTSIDE the radius.
+  if (obj.showLabel !== false && obj.label) {
+    const labelSize = Math.max(sw * 14, 3);
+    const mid = a0 + sweep / 2;
+    const rad = (mid * Math.PI) / 180;
+    const lr = r + labelSize * 0.9;
+    const t = document.createElementNS(SVG_NS, "text");
+    t.setAttribute("x", vx + lr * Math.cos(rad));
+    t.setAttribute("y", vy - lr * Math.sin(rad));
+    t.setAttribute("font-size", labelSize);
+    t.setAttribute("font-style", "italic");
+    t.setAttribute("font-family", DEFAULT_TEXT_FONT);
+    t.setAttribute("fill", color);
+    t.setAttribute("text-anchor", "middle");
+    t.setAttribute("dominant-baseline", "middle");
+    t.textContent = obj.label;
+    g.appendChild(t);
+  }
+
+  return g;
+}
+
 /* ----- rotate point (px,py) about center (cx,cy) by deg degrees (SVG clockwise) ----- */
 export function rotPt(px, py, cx, cy, deg) {
   const r = (deg * Math.PI) / 180;
@@ -1256,6 +1328,11 @@ export function singleObjBBox(o, scene) {
     }
     return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
   }
+  // anglearc has no x/y/w/h — its box is the vertex-centered square of radius r.
+  if (o.type === "anglearc") {
+    const r = o.radius || 0;
+    return { x: o.x - r, y: o.y - r, w: 2 * r, h: 2 * r };
+  }
   if (o.type === "text") {
     const el = scene.querySelector(`[data-id="${o.id}"]`);
     if (el) {
@@ -1330,11 +1407,13 @@ function renderHandles(sel, scene, zoom, activeTool) {
 
   const _closedPoly  = sel.type === "polyline" && sel.closed === true;
   const _closedCurve = sel.type === "curve"    && sel.closed === true;
-  if (sel.type === "rect" || sel.type === "ellipse" || sel.type === "triangle" || sel.type === "image" || sel.type === "axes" || _closedPoly || _closedCurve) {
-    // Closed polyline/curve reuses branch-A handles on its (axis-aligned) points bbox;
-    // neither has x/y/w/h or rotation field, so derive the box and pin deg to 0.
+  const _anglearc = sel.type === "anglearc";
+  if (sel.type === "rect" || sel.type === "ellipse" || sel.type === "triangle" || sel.type === "image" || sel.type === "axes" || _anglearc || _closedPoly || _closedCurve) {
+    // Closed polyline/curve and anglearc reuse branch-A handles on a derived
+    // (axis-aligned) bbox; none has x/y/w/h or a rotation field, so derive the
+    // box and pin deg to 0 (anglearc's rotation lives in startAngle, not a box).
     let x, y, w, h, deg;
-    if (_closedPoly || _closedCurve) {
+    if (_closedPoly || _closedCurve || _anglearc) {
       const bb = singleObjBBox(sel, scene);
       ({ x, y, w, h } = bb);
       deg = 0;

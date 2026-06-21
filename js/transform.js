@@ -13,9 +13,9 @@
 // we can distinguish "click on already-selected ??move allowed" from "click
 // selects a new object ??just select, no move this press."
 
-import { screenToWorld, getRenderScale } from "./viewport.js?v=0.41.0";
-import { resolveSnap } from "./snap.js?v=0.41.0";
-import { setSnapPreview } from "./render.js?v=0.41.0";
+import { screenToWorld, getRenderScale } from "./viewport.js?v=0.42.0";
+import { resolveSnap } from "./snap.js?v=0.42.0";
+import { setSnapPreview } from "./render.js?v=0.42.0";
 
 /* ----- shared lock guard: locked objects are excluded from mutating ops ----- */
 function isMutable(o) { return o && !o.locked; }
@@ -176,6 +176,9 @@ function clipboardBBox(objs) {
   for (const o of objs) {
     if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle" || o.type === "image" || o.type === "axes") {
       acc(o.x, o.y); acc(o.x + (o.w || 0), o.y + (o.h || 0));
+    } else if (o.type === "anglearc") {
+      const r = o.radius || 0;
+      acc(o.x - r, o.y - r); acc(o.x + r, o.y + r);
     } else if (o.type === "text") {
       acc(o.x, o.y);
     } else if (o.type === "line") {
@@ -191,7 +194,9 @@ function clipboardBBox(objs) {
 /* ----- set object position from original + delta (avoids float drift) ----- */
 function applyDelta(obj, orig, dx, dy) {
   if (obj.type === "rect" || obj.type === "ellipse" ||
-      obj.type === "triangle" || obj.type === "text" || obj.type === "image" || obj.type === "axes") {
+      obj.type === "triangle" || obj.type === "text" || obj.type === "image" ||
+      obj.type === "axes" || obj.type === "anglearc") {
+    // anglearc moves by its vertex (x,y); radius/angles are unaffected.
     obj.x = orig.x + dx;
     obj.y = orig.y + dy;
   } else if (obj.type === "line") {
@@ -231,6 +236,28 @@ function snapLineEndpoint(anchor, point) {
 }
 
 function applyHandleDeltaBase(obj, orig, handle, dx, dy, shiftKey, ctrlKey) {
+  // anglearc: a single-DOF symbol — resizing scales the RADIUS, vertex anchored.
+  // Reuse the SAME per-handle box math on the arc's vertex-centered square bbox,
+  // then map the resulting box size back to a radius (avg half-extent so every
+  // handle, edge or corner, responds monotonically). Aspect lock is irrelevant.
+  if (obj.type === "anglearc") {
+    const r0 = orig.radius || 0;
+    let w = 2 * r0, h = 2 * r0;
+    switch (handle) {
+      case "n":  h -= dy; break;
+      case "s":  h += dy; break;
+      case "w":  w -= dx; break;
+      case "e":  w += dx; break;
+      case "nw": h -= dy; w -= dx; break;
+      case "ne": h -= dy; w += dx; break;
+      case "se": h += dy; w += dx; break;
+      case "sw": h += dy; w -= dx; break;
+    }
+    obj.radius = Math.max(MIN_SIZE, (w + h) / 4);
+    obj.x = orig.x; // vertex stays put — the circle grows/shrinks about it
+    obj.y = orig.y;
+    return;
+  }
   // Branch B: endpoint handles (line / polyline / curve)
   if (obj.type === "line") {
     if (handle === "p0") {
@@ -337,6 +364,10 @@ function objWorldBBox(o, svg) {
   if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle" || o.type === "image" || o.type === "axes") {
     return { x: o.x, y: o.y, w: o.w, h: o.h };
   }
+  if (o.type === "anglearc") {
+    const r = o.radius || 0;
+    return { x: o.x - r, y: o.y - r, w: 2 * r, h: 2 * r };
+  }
   if (o.type === "text") {
     const el = svg.querySelector(`[data-id="${o.id}"]`);
     if (el) {
@@ -426,6 +457,9 @@ function applyGroupResize(objs, origObjs, box0, handle, dx, dy) {
     if (orig.type === "rect" || orig.type === "ellipse" || orig.type === "triangle" || orig.type === "image" || orig.type === "axes") {
       const p = mapPt(orig.x, orig.y);
       obj.x = p.x; obj.y = p.y; obj.w = orig.w * sx; obj.h = orig.h * sy;
+    } else if (orig.type === "anglearc") {
+      const p = mapPt(orig.x, orig.y);
+      obj.x = p.x; obj.y = p.y; obj.radius = orig.radius * sx; // forced ratio: sx == sy
     } else if (orig.type === "text") {
       const p = mapPt(orig.x, orig.y);
       obj.x = p.x; obj.y = p.y;
@@ -611,6 +645,10 @@ export function initTransform(svg, state) {
                   obj.p2 = rot(obj.p2.x, obj.p2.y);
                 } else if (obj.type === "polyline" || obj.type === "curve") {
                   obj.points = obj.points.map((p) => rot(p.x, p.y));
+                } else if (obj.type === "anglearc") {
+                  const c = rot(obj.x, obj.y);          // vertex about group pivot
+                  obj.x = c.x; obj.y = c.y;
+                  obj.startAngle = (obj.startAngle || 0) - 5; // screen-CW = math −
                 } else {
                   const c = rot(obj.x + obj.w / 2, obj.y + obj.h / 2);
                   obj.x = c.x - obj.w / 2;
@@ -692,6 +730,10 @@ export function initTransform(svg, state) {
                   obj.p2 = rot(obj.p2.x, obj.p2.y);
                 } else if (obj.type === "polyline" || obj.type === "curve") {
                   obj.points = obj.points.map((p) => rot(p.x, p.y));
+                } else if (obj.type === "anglearc") {
+                  const c = rot(obj.x, obj.y);          // vertex about group pivot
+                  obj.x = c.x; obj.y = c.y;
+                  obj.startAngle = (obj.startAngle || 0) + 5; // screen-CCW = math +
                 } else {
                   const c = rot(obj.x + obj.w / 2, obj.y + obj.h / 2);
                   obj.x = c.x - obj.w / 2;
@@ -920,8 +962,9 @@ export function initTransform(svg, state) {
           _rotObjId       = obj.id;
           _rotOrigObj     = JSON.parse(JSON.stringify(obj));
           // Closed polyline/curve rotates about its bbox CENTER (points are baked,
-          // there is no rotation field / opposite-corner pivot to track).
-          _rotPivot       = (obj.positionLocked || isClosedPoly(obj) || isClosedCurve(obj))
+          // there is no rotation field / opposite-corner pivot to track). anglearc
+          // rotates about its VERTEX (= objectCenter), spinning startAngle.
+          _rotPivot       = (obj.positionLocked || isClosedPoly(obj) || isClosedCurve(obj) || obj.type === "anglearc")
             ? objectCenter(obj) : getRotPivot(obj, hLabel);
           const mouse     = screenToWorld(svg, s.viewBox, e.clientX, e.clientY);
           _rotStartAngle  = Math.atan2(mouse.y - _rotPivot.y, mouse.x - _rotPivot.x);
@@ -1022,6 +1065,19 @@ export function initTransform(svg, state) {
         return;
       }
 
+      // anglearc: rotation is stored in startAngle (vertex is the pivot, so the
+      // vertex x/y never move). Screen-CW drag = positive deltaDeg = math angle
+      // DECREASE, so subtract to make the arc follow the mouse.
+      if (_rotOrigObj.type === "anglearc") {
+        state.update((s) => {
+          const obj = s.objects.find((o) => o.id === _rotObjId);
+          if (!obj) return;
+          obj.startAngle = (_rotOrigObj.startAngle || 0) - deltaDeg;
+        });
+        if (!_rotDidMove && Math.abs(deltaDeg) > 0.1) _rotDidMove = true;
+        return;
+      }
+
       // Normalize: rotating by 灌 about pivot P ??rotating by 灌 about center C + translation.
       // new_center = rotate(orig_center, pivot, 灌); stored (x,y) = new_center ??(w/2, h/2).
       const { x: x0, y: y0, w, h, rotation: a0 } = _rotOrigObj;
@@ -1074,6 +1130,12 @@ export function initTransform(svg, state) {
             obj.p2 = memberRot(orig.p2.x, orig.p2.y);
           } else if (orig.type === "polyline" || orig.type === "curve") {
             obj.points = orig.points.map((p) => memberRot(p.x, p.y));
+          } else if (orig.type === "anglearc") {
+            // vertex rotates about the pivot; spin lives in startAngle (screen-CW
+            // = +deltaDeg = math decrease).
+            const c = orig.positionLocked ? memberCenter : rot(memberCenter.x, memberCenter.y);
+            obj.x = c.x; obj.y = c.y;
+            obj.startAngle = (orig.startAngle || 0) - deltaDeg;
           } else {
             // box-type (rect/ellipse/triangle/text): rotate center about pivot,
             // and bump the member's own rotation field by the same delta.

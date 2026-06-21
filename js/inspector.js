@@ -1,7 +1,7 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.41.0";
-import { openFontModalForSelection } from "./tools.js?v=0.41.0";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.42.0";
+import { openFontModalForSelection } from "./tools.js?v=0.42.0";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -967,6 +967,18 @@ export function initInspector(state) {
   whPair.appendChild(hF.el);
   sec3Body.appendChild(whPair);
 
+  // anglearc-only rows: radius + start/sweep angle (math convention, CCW +). The
+  // arc has no W/H/rotation — these replace those rows for an anglearc selection.
+  const radF = makePosRow("반지름", "radius", "0.1");
+  const saF  = makePosRow("시작각 °", "startAngle", "1");
+  const swF  = makePosRow("사잇각 °", "sweepAngle", "1");
+  sec3Body.appendChild(radF.el);
+  const arcPair = document.createElement("div");
+  arcPair.style.cssText = "display:flex;gap:10px;";
+  arcPair.appendChild(saF.el);
+  arcPair.appendChild(swF.el);
+  sec3Body.appendChild(arcPair);
+
   const sec3 = makeSection("크기·위치", sec3Body);
   contentEl.appendChild(sec3);
 
@@ -1286,6 +1298,12 @@ export function initInspector(state) {
       dashSliders.style.display = "none";
       closeRow.style.display = "none";
       angleRow.style.display = "none";
+      // A group always uses the box rows (W/H + rotation); never the arc rows,
+      // even if the prior single selection was an anglearc.
+      whPair.style.display  = "flex";
+      rotF.el.style.display = "";
+      radF.el.style.display = "none";
+      arcPair.style.display = "none";
 
       const groupHasLocked = ids.some((id) => s.objects.find((o) => o.id === id)?.locked);
       const groupHasPositionLocked = ids.some((id) => s.objects.find((o) => o.id === id)?.positionLocked);
@@ -1477,15 +1495,30 @@ export function initInspector(state) {
     fillCP.setDisabled(fn);
     syncFillStyle(obj);
 
-    // Section 3 — shape types + axes (size-based: X/Y/W/H/rotation)
+    // Section 3 — shape types + axes (size-based: X/Y/W/H/rotation), plus the
+    // anglearc (X/Y + radius/startAngle/sweepAngle in math convention, CCW +).
     const isShape = SHAPE_TYPES.includes(obj.type) || obj.type === "axes";
-    sec3.style.display = isShape ? "" : "none";
+    const isArc = obj.type === "anglearc";
+    sec3.style.display = (isShape || isArc) ? "" : "none";
+    // Toggle which rows belong to this selection: arc swaps W/H + rotation for
+    // radius + start/sweep angle.
+    whPair.style.display  = isArc ? "none" : "flex";
+    rotF.el.style.display = isArc ? "none" : "";
+    radF.el.style.display = isArc ? "" : "none";
+    arcPair.style.display = isArc ? "flex" : "none";
     if (isShape) {
       xF.inp.value   = (obj.x        ?? 0).toFixed(2);
       yF.inp.value   = (-(obj.y      ?? 0)).toFixed(2); // SVG Y down → math Y up
       wF.inp.value   = (obj.w        ?? 0).toFixed(2);
       hF.inp.value   = (obj.h        ?? 0).toFixed(2);
       rotF.inp.value = (obj.rotation ?? 0).toFixed(1);
+    }
+    if (isArc) {
+      xF.inp.value    = (obj.x          ?? 0).toFixed(2);
+      yF.inp.value    = (-(obj.y        ?? 0)).toFixed(2); // SVG Y down → math Y up
+      radF.inp.value  = (obj.radius     ?? 0).toFixed(2);
+      saF.inp.value   = (obj.startAngle ?? 0).toFixed(1);
+      swF.inp.value   = (obj.sweepAngle ?? 0).toFixed(1);
     }
 
     // Section 4
@@ -1498,6 +1531,9 @@ export function initInspector(state) {
     wF.inp.disabled = !!obj.locked;
     hF.inp.disabled = !!obj.locked;
     rotF.inp.disabled = !!obj.locked;
+    radF.inp.disabled = !!obj.locked;
+    saF.inp.disabled = !!obj.locked;
+    swF.inp.disabled = !!obj.locked;
   }
 
   state.subscribe(populate);

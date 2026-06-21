@@ -13,7 +13,7 @@
 //   * "composite" — SEVERAL primitives bundled as a group (e.g. lens, pulley).
 //                   NOT implemented yet — see the placeholder below.
 
-import { state } from "./state.js?v=0.41.0";
+import { state } from "./state.js?v=0.42.0";
 
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm) — matches tools.js shapes
 
@@ -50,6 +50,34 @@ export const TEMPLATES = {
         tickSpacing: 5,                 // world units (mm) between ticks
         labelX: "x",
         labelY: "y",
+        locked: false,
+        positionLocked: false,
+      };
+    },
+  },
+
+  /* ----- ANGLE ARC: second atomic symbol (single type:"anglearc" object) -----
+   * The angle θ. Geometry lives in data: a vertex (x,y) plus a radius and a
+   * start/sweep angle pair in MATH convention (CCW positive, +Y up — matching
+   * the inspector). The renderer projects ONE arc + its label from these fields;
+   * it does NOT draw the two rays (the user draws those with the line tool).
+   * Rides the existing single-object transform path: move → x/y, rotate →
+   * startAngle, resize → radius (see transform.js). */
+  anglearc: {
+    kind: "atomic",
+    label: "각도 호",
+    make(at) {
+      return {
+        type: "anglearc",
+        x: at.x,                    // arc vertex sits AT the drop point
+        y: at.y,
+        radius: 14,                 // world units (mm); resizable afterwards
+        startAngle: 0,              // math convention (CCW positive, +Y up)
+        sweepAngle: 60,             // opening of the arc (deg); CCW positive
+        label: "θ",
+        showLabel: true,
+        strokeLevel: 0,             // 0 = black (DESIGN 2-2)
+        strokeWidth: DEFAULT_STROKE_WIDTH,
         locked: false,
         positionLocked: false,
       };
