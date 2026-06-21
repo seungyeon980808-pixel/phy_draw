@@ -13,9 +13,9 @@
 // we can distinguish "click on already-selected ??move allowed" from "click
 // selects a new object ??just select, no move this press."
 
-import { screenToWorld, getRenderScale } from "./viewport.js?v=0.40.1";
-import { resolveSnap } from "./snap.js?v=0.40.1";
-import { setSnapPreview } from "./render.js?v=0.40.1";
+import { screenToWorld, getRenderScale } from "./viewport.js?v=0.40.2";
+import { resolveSnap } from "./snap.js?v=0.40.2";
+import { setSnapPreview } from "./render.js?v=0.40.2";
 
 /* ----- shared lock guard: locked objects are excluded from mutating ops ----- */
 function isMutable(o) { return o && !o.locked; }
@@ -218,13 +218,27 @@ function translateObject(obj, dx, dy) {
   applyDelta(obj, orig, dx, dy);
 }
 
+function snapLineEndpoint(anchor, point) {
+  const dx = point.x - anchor.x, dy = point.y - anchor.y;
+  const distance = Math.hypot(dx, dy);
+  const degrees = Math.round((Math.atan2(dy, dx) * 180 / Math.PI) / 15) * 15;
+  const radians = degrees * Math.PI / 180;
+  let ux = Math.cos(radians), uy = Math.sin(radians);
+  const normalized = ((degrees % 360) + 360) % 360;
+  if (normalized === 0 || normalized === 180) uy = 0;
+  if (normalized === 90 || normalized === 270) ux = 0;
+  return { x: anchor.x + ux * distance, y: anchor.y + uy * distance };
+}
+
 function applyHandleDeltaBase(obj, orig, handle, dx, dy, shiftKey) {
   // Branch B: endpoint handles (line / polyline / curve)
   if (obj.type === "line") {
     if (handle === "p0") {
-      obj.p1 = { x: orig.p1.x + dx, y: orig.p1.y + dy };
+      const dragged = { x: orig.p1.x + dx, y: orig.p1.y + dy };
+      obj.p1 = shiftKey ? snapLineEndpoint(orig.p2, dragged) : dragged;
     } else {
-      obj.p2 = { x: orig.p2.x + dx, y: orig.p2.y + dy };
+      const dragged = { x: orig.p2.x + dx, y: orig.p2.y + dy };
+      obj.p2 = shiftKey ? snapLineEndpoint(orig.p1, dragged) : dragged;
     }
     return;
   }

@@ -11,16 +11,17 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.40.1";
+import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.40.2";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt,
-} from "./state.js?v=0.40.1";
+} from "./state.js?v=0.40.2";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
 const MIN_SIZE = 0.3; // world units; ignore stray clicks that draw nothing
 const HIT_TOL_PX = 6; // CSS px of slop around an edge so thin strokes are clickable
+const LINE_HIT_TOL_PX = 9; // screen-space slop for line-family segments
 const TEXT_EDITOR_PX = 14; // on-screen px of the text editor (matches .text-editor-overlay font-size)
 const TEXT_LINE_HEIGHT = 1.4; // matches .text-editor-overlay line-height AND renderText() tspan dy
 // A textarea centers its glyphs in the line box, so the first line sits half a
@@ -151,11 +152,13 @@ function setupDrawing() {
     const p = screenToWorld(_svg, vb, e.clientX, e.clientY);
     // Convert a few CSS px of edge tolerance into world units (DESIGN-style
     // tolerance) so thin strokes are easy to hit.
-    const tol = (HIT_TOL_PX * vb.w) / _svg.getBoundingClientRect().width;
+    const worldUnitsPerPx = vb.w / _svg.getBoundingClientRect().width;
+    const tol = HIT_TOL_PX * worldUnitsPerPx;
+    const lineTol = LINE_HIT_TOL_PX / getRenderScale();
     const shiftHeld = e.shiftKey;
     let hitId = null;
     _state.update((s) => {
-      hitId = hitTest(s.objects, p, tol);
+      hitId = hitTest(s.objects, p, tol, lineTol);
       if (hitId !== null) {
         const _hlObj = s.objects.find((o) => o.id === hitId);
         const _hlLayerId = _hlObj ? (_hlObj.layerId ?? 1) : 1;
@@ -488,7 +491,7 @@ function isCommittable(shape) {
 // strokeWidth/2 (to reach the stroke's outer edge) + tol (a few screen px of
 // click slack). Rect's bbox == its shape, so it keeps the bbox test; the ellipse
 // and triangle use shape-specific tests so the empty bbox corners do NOT select.
-function hitTest(objects, p, tol = 0) {
+function hitTest(objects, p, tol = 0, lineTol = tol) {
   for (let i = objects.length - 1; i >= 0; i--) {
     const o = objects[i];
     if (o.type !== "rect" && o.type !== "ellipse" && o.type !== "triangle" &&
@@ -509,7 +512,8 @@ function hitTest(objects, p, tol = 0) {
     // A line has no area: clickable band = stroke half-width + the screen-px
     // slack already converted to world units (tol = tolerancePx / currentZoom),
     // so the band stays visually constant at any zoom (DESIGN-style tolerance).
-    const margin = (o.strokeWidth || 0) / 2 + tol;
+    const margin = (o.strokeWidth || 0) / 2 +
+      ((o.type === "line" || o.type === "polyline" || o.type === "curve") ? lineTol : tol);
 
     if (o.type === "line") {
       if (segDist(p.x, p.y, o.p1.x, o.p1.y, o.p2.x, o.p2.y) <= margin) return o.id;

@@ -7,8 +7,8 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.40.1";
-import { DEFAULT_TEXT_FONT } from "./state.js?v=0.40.1";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.40.2";
+import { DEFAULT_TEXT_FONT } from "./state.js?v=0.40.2";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -1157,7 +1157,19 @@ function renderHandles(sel, scene, zoom, activeTool) {
   const g = document.createElementNS(SVG_NS, "g");
   g.setAttribute("id", "handles");
 
-  const makeHandle = (wx, wy, label) => {
+  const makeHandle = (wx, wy, label, easierPointerTarget = false) => {
+    if (easierPointerTarget) {
+      const hit = document.createElementNS(SVG_NS, "rect");
+      const hitHalf = 9 / zoom;
+      hit.setAttribute("x", wx - hitHalf);
+      hit.setAttribute("y", wy - hitHalf);
+      hit.setAttribute("width", hitHalf * 2);
+      hit.setAttribute("height", hitHalf * 2);
+      hit.setAttribute("fill", "transparent");
+      hit.dataset.handle = label;
+      hit.dataset.id = sel.id;
+      g.appendChild(hit);
+    }
     const r = document.createElementNS(SVG_NS, "rect");
     r.setAttribute("x", wx - half);
     r.setAttribute("y", wy - half);
@@ -1247,10 +1259,10 @@ function renderHandles(sel, scene, zoom, activeTool) {
       makeHandle(hW.x,  hW.y,  "w");
     }
   } else if (sel.type === "line") {
-    makeHandle(sel.p1.x, sel.p1.y, "p0");
-    makeHandle(sel.p2.x, sel.p2.y, "p1");
+    makeHandle(sel.p1.x, sel.p1.y, "p0", true);
+    makeHandle(sel.p2.x, sel.p2.y, "p1", true);
   } else if ((sel.type === "polyline" || sel.type === "curve") && !sel.closed) {
-    sel.points.forEach((p, i) => makeHandle(p.x, p.y, `p${i}`));
+    sel.points.forEach((p, i) => makeHandle(p.x, p.y, `p${i}`, true));
   }
   // text: no handles
 
