@@ -77,6 +77,14 @@
             <button id="image-export" class="file-menu-item" type="button" role="menuitem">이미지로 내보내기</button>
           </div>
         </div>
+        <!-- 설정 dropdown: 기본값 설정 (localStorage) + 단축키 설정 (준비 중) -->
+        <div class="file-menu">
+          <button id="settings-menu-btn" class="topbar-btn" type="button" aria-haspopup="true" aria-expanded="false" title="설정">설정 ▾</button>
+          <div id="settings-menu-list" class="file-menu-list" role="menu" hidden>
+            <button id="open-defaults" class="file-menu-item" type="button" role="menuitem">기본값 설정</button>
+            <button id="open-shortcuts" class="file-menu-item" type="button" role="menuitem" disabled title="준비 중">단축키 설정</button>
+          </div>
+        </div>
         <span id="zoom-readout" class="zoom-readout">zoom 1.00×</span>
         <button id="fullscreen-toggle" class="topbar-btn fullscreen-toggle" type="button"
                 title="전체화면 (Alt+Enter)" aria-label="전체화면" aria-pressed="false">
@@ -147,11 +155,11 @@
 
   <!-- ===== FOOTER: version + date ===== -->
   <footer class="app-footer">
-    PhysicsExamDrawer Web · <strong>v0.31.5</strong> · 2026-06-21
+    PhysicsExamDrawer Web · <strong>v0.31.6</strong> · 2026-06-21
   </footer>
 
   <!-- ===== MODULES (load order matters: store → state → viewport → render → main) ===== -->
   <!-- ?v= busts the ES-module cache so edits actually load (DESIGN: cache-bust) -->
-  <script type="module" src="js/main.js?v=0.31.5"></script>
+  <script type="module" src="js/main.js?v=0.31.8"></script>
 </body>
 </html>

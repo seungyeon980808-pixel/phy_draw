@@ -16,11 +16,11 @@ function currentZoom(svg, vb) {
 
 // world (viewBox) coords -> screen (client) pixels
 export function worldToScreen(svg, vb, wx, wy) {
-  const rect = svg.getBoundingClientRect();
-  return {
-    x: rect.left + ((wx - vb.x) / vb.w) * rect.width,
-    y: rect.top + ((wy - vb.y) / vb.h) * rect.height,
-  };
+  const pt = svg.createSVGPoint();
+  pt.x = wx;
+  pt.y = wy;
+  const s = pt.matrixTransform(svg.getScreenCTM());
+  return { x: s.x, y: s.y };
 }
 
 // screen (client) pixels -> world (viewBox) coords.

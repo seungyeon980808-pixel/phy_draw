@@ -7,15 +7,16 @@
 //   4. init tools (tool selection + the rectangle draw pipeline).
 
 // ?v= matches index.html so a version bump reloads every module, not just main.
-import { state } from "./state.js?v=0.31.5";
-import { render } from "./render.js?v=0.31.5";
-import { initViewport, getZoom, screenToWorld, centerView, setCenterLocked } from "./viewport.js?v=0.31.5";
-import { initTools } from "./tools.js?v=0.31.5";
-import { initTransform, undo, redo } from "./transform.js?v=0.31.5";
-import { initInspector } from "./inspector.js?v=0.31.5";
-import { initProjectIO } from "./project-io.js?v=0.31.5";
-import { initExportDialog } from "./export-dialog.js?v=0.31.5";
-import { initRuler, setRulerVisible } from "./ruler.js?v=0.31.5";
+import { state } from "./state.js?v=0.31.8";
+import { render } from "./render.js?v=0.31.8";
+import { initViewport, getZoom, screenToWorld, centerView, setCenterLocked } from "./viewport.js?v=0.31.8";
+import { initTools } from "./tools.js?v=0.31.8";
+import { initTransform, undo, redo } from "./transform.js?v=0.31.8";
+import { initInspector } from "./inspector.js?v=0.31.8";
+import { initProjectIO } from "./project-io.js?v=0.31.8";
+import { initExportDialog } from "./export-dialog.js?v=0.31.8";
+import { initRuler, setRulerVisible } from "./ruler.js?v=0.31.8";
+import { initSettings } from "./settings.js?v=0.31.8";
 
 const svg = document.getElementById("canvas");
 const zoomReadout = document.getElementById("zoom-readout");
@@ -124,6 +125,9 @@ initExportDialog(state);
 
 /* ----- rulers: top + left ruler canvases synced to viewport ----- */
 initRuler(svg, state);
+
+/* ----- settings: 설정 dropdown + 기본값 설정 modal (persists to localStorage) ----- */
+initSettings(state);
 
 /* ===== TOOL PANEL: collapsible section toggle (event delegation) ===== */
 (function initToolSections() {
