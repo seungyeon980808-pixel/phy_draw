@@ -8,10 +8,14 @@
 
 ## 0. 한 줄 요약
 
-**v0.16.0 (또는 진행 중인 v0.16.1) — Phase 4 내보내기 핵심 완성.**
-JSON 저장/열기 + SVG/PNG 내보내기 + 다크/라이트 테마 + 아트보드 크기 조절 완료.
-**미해결: 그룹 관련 버그 4건(아래 §8 최상단) — 진단부터 해야 함.**
-대기: Claude Code 훅 음성알림 설정(프로젝트 무관, 전역 settings.json).
+**v0.32.x — 스냅 기능 재작업 진행 중.**
+정렬 스냅 + 자석 부착은 이미 동작하나, 회전 오브젝트에서 자석이 어긋남.
+→ **"Shift 단일 자석 + 2단 거리(80px 예고 / 40px 부착) + 빨간 점·점선 예고"** 모델로 재작업하기로 확정.
+설계·결정 완료, 실행 프롬프트 준비됨(§12). **다음 세션(코덱스) 첫 작업 = 이 프롬프트 투입.**
+대기: 그룹 관련 버그 4건(§8), Claude Code 훅 음성알림(전역 settings.json).
+
+> ⚠️ v0.16 → v0.32 사이 작업 이력은 이 문서에 미반영(별도 세션들). 파일 구조·동작은 §4·§12의
+> "검증된 사실"이 현재 기준. 불확실하면 `git log`로 확인.
 
 ---
 
@@ -69,7 +73,7 @@ C:\Users\user\Desktop\project\51_phy_draw_web\
 
 ### 핸들 과대화 버그 픽스 (v0.13.1) — 완료 ⭐교훈
 - **증상**: 선택 핸들이 줌과 무관하게 거대하게 고정.
-- **진짜 원인**: 일부 모듈의 `?v=` 값이 달랐고 별도 인스턴스로 import →
+- **진짜 원인**: render.js가 `viewport.js?v=0.12.0`을, 나머지는 `?v=0.13.0`을 import →
   ES 모듈이 둘을 별개 인스턴스로 취급 → render.js가 쓰는 viewport 복사본이 초기화 안 됨 →
   `getZoom()`이 항상 1 반환 → `5/zoom = 5` 고정.
 - **교훈**: 핸들 크기 상수(5, 28)는 처음부터 정상이었음. 추측 수정 2회 모두 빗나감.
@@ -107,6 +111,21 @@ C:\Users\user\Desktop\project\51_phy_draw_web\
 - 아트보드 프리셋 2×2 그리드(라벨 잘림 해결).
 - 선택 가이드/마퀴 점선 더 촘촘하게.
 - ※ 이 프롬프트를 보냈으나 사용자 확인 전 세션 종료 가능성 있음 — **다음 세션에서 적용 여부 먼저 확인.**
+
+### 스냅 재작업 (v0.32.x) — 설계 확정, 실행 대기 ⭐현재 작업
+> PyQt 원본(`items.py`) 스냅 3종 중 정렬+자석은 이미 이식됨. 이번엔 모델 자체를 재설계.
+> 상세 실행 프롬프트·검증 순서는 §12. 여기엔 결정 요약만.
+
+- **현재 상태**: 정렬 스냅(7px 항상 켜짐) + 자석(22px, Ctrl) 동작 중. **회전 오브젝트에서 자석 어긋남**(후보점을 unrotated 좌표로 계산한 게 원인 추정).
+- **확정한 변경** (사용자 합의 완료):
+  1. 약한 정렬(항상 켜짐) **제거** → 스냅 평소 꺼짐.
+  2. **Shift 누를 때만** 동작 (Ctrl 아님 — Ctrl은 복사/붙여넣기와 충돌. Shift는 이동 드래그 중 빔, 확인됨).
+  3. 자석 후보 좌표를 **회전 적용**(`render.js` `singleObjBBox`/`rotPt` 기준) → 회전 버그 구조적 해결.
+  4. 붙을 때 **상대 회전각 복사**로 각도까지 정렬(찰싹). 원본 `_magnetic_attach` 방식(A안).
+  5. **2단 거리**: 80px 이내 = 예고만(닿을 두 지점에 빨간 점 2개 + 얇은 빨간 점선, 변이면 변 중점, 가장 가까운 한 쌍만) / 40px 이내 = 실제 부착.
+  6. **곡선 제외**(DESIGN v2). 사각·타원·삼각의 변·꼭짓점만.
+  7. 빨간 점·점선은 **데이터 아님 = 일시 오버레이**(선택 핸들과 같은 레이어). 드래그 끝·Shift 뗌·후보 없음 시 제거.
+- **검증된 통합 위치**(재조사 불필요): §12 참조.
 
 ---
 
@@ -174,7 +193,12 @@ C:\Users\user\Desktop\project\51_phy_draw_web\
 
 > 원칙: 한 묶음씩 검증하며 진행. 한 번에 많이 묶으면 버그 추적 불가(이번 세션 핸들 버그 교훈).
 
-### ⬛ 최우선 — 그룹 버그 진단·수정 (§8 참조)
+### ⬛ 최우선 — 스냅 재작업 (§3 스냅 항목 + §12 실행 프롬프트)
+설계 확정 완료. **다음 세션 첫 작업 = §12 영어 프롬프트를 코덱스에 투입.**
+검증은 §12의 2단계(자석 자체 → 예고 오버레이) 순서로. 회전 사각형끼리 자석 되는지가 핵심.
+끝나면 선 끝점 스냅(원본 `_find_snap_target` 이식)이 다음 묶음.
+
+### ⬛ 그다음 — 그룹 버그 진단·수정 (§8 참조)
 서로 얽힌 4건. **진단 프롬프트 먼저**(고치지 말고 "그룹 선택 상태 처리 경로" 보고만) → 보고 받고 일괄 수정.
 
 ### 2묶음 잔여 — 위치 고정 + 좌측 패널 너비 조절
@@ -258,3 +282,105 @@ C:\Users\user\Desktop\project\51_phy_draw_web\
 - 브랜치: main, GitHub Pages 배포 기준.
 - 이번 세션 핸들 버그 픽스 커밋: `3c73b74` (fix: 오브젝트 핸들이 과도하게 커지는 버그 해결) — push 완료.
 - ⚠️ 이후 작업(v0.14~0.16)의 커밋/푸시 상태는 다음 세션에서 `git log`/`git status`로 확인 필요.
+---
+
+## 12. 스냅 재작업 — 실행 프롬프트 & 검증 (현재 작업)
+
+> §3 "스냅 재작업" 항목의 실행 세부. 코덱스에 아래 영어 블록을 그대로 투입.
+
+### 검증된 통합 위치 (코덱스가 재조사 불필요)
+
+- **드래그 이동**: `transform.js` mousemove body-move 분기(~1101–1114). `_moveStartWorld` 기준 델타를
+  `applyDelta(obj, orig, dx, dy)`로 `state.update(...)` 안에서 **매 mousemove마다 store에 live commit**.
+  release(`finishGesture`)는 undo 스냅샷만 push. per-shape 좌표 수학은 `applyDelta`(~189–200).
+- **단일/다중 통합**: 둘 다 `_moving` 제스처. mousedown이 `_moveObjIds` 배열 생성(~951–972),
+  mousemove가 균일 순회(~1107–1114). 분기 없음.
+- **회전 적용 좌표**: `render.js` `singleObjBBox(o, scene)`(~996) → `rotPt`(~903)로 회전 적용 네 꼭짓점
+  (~1001–1006). 선택 박스·`combinedGroupBBox`(~1039) 사용.
+  ⚠️ `tools.js` `hitTest`(~487)는 **회전 미적용** — 스냅 기준으로 쓰면 안 됨.
+- **수정자 키**: 이동 드래그 중 Ctrl/Alt/Shift 모두 빔(회전에서만 Ctrl=15°, 크기조절에서 Shift=비율고정).
+  → Shift를 자석 키로 써도 이동 드래그에선 충돌 없음.
+
+### 실행 프롬프트 (영어, 그대로 투입)
+
+```
+Working directory: C:\Users\user\Desktop\project\51_phy_draw_web
+
+Rework object snapping. Modify js/snap.js and add a snap-preview overlay.
+Keep changes targeted; do not refactor unrelated code.
+
+== REMOVE ==
+- Remove the always-on weak align snap (the 7px alignment that runs without
+  any modifier). Snapping must be OFF by default now.
+
+== NEW BEHAVIOR: Shift-only magnet, two-stage by distance ==
+Snapping runs ONLY while Shift is held during body-move drag.
+(Verified: Shift is unused during translation drag. Ctrl is no longer the
+magnet key.) Thresholds in screen px, converted via current zoom.
+
+For the dragged selection and every OTHER object, compute candidate points
+using ROTATION-APPLIED coordinates from render.js singleObjBBox / rotPt
+(NOT unrotated x/y/w/h — that was the previous rotation bug). Candidates:
+edge midpoints and corners of each shape (rect / ellipse / triangle only;
+skip curves this pass). For multi-selection, treat _moveObjIds as one
+combined bbox.
+
+Find the single closest candidate pair (dragged point <-> target point)
+within 80px. Then:
+
+- If pair distance <= 80px AND > 40px  → PREVIEW ONLY (no attach):
+  Draw a temporary overlay: a red dot at each of the two candidate points
+  (for an edge, use the edge MIDPOINT), and a thin red dashed line
+  connecting them. Closest pair only — never draw multiple pairs.
+  This overlay is transient (not stored in state); clear it when the drag
+  ends or when Shift is released or when no pair is within 80px.
+
+- If pair distance <= 40px → ATTACH (magnet):
+  Snap the dragged object so the two points coincide, AND copy the target
+  object's rotation onto the dragged object so they sit flush (port the
+  original PyQt _magnetic_attach angle-copy behavior). Show the same red
+  dots/line at the attach moment too.
+
+== INTEGRATION ==
+- snap.js exports a resolve function called once per mousemove in the
+  transform.js body-move branch BEFORE applyDelta; it returns adjusted
+  {dx, dy} (raw delta if Shift not held), plus preview info (the two points
+  or null).
+- Render the red-dot/dashed-line overlay in the same transient layer as
+  selection handles (NOT in state.objects). Remove on drag end.
+- If Shift is NOT held: no snap, no overlay, raw delta.
+
+== HARD CONSTRAINTS ==
+- Update EVERY import ?v= string in ALL files to one new shared version,
+  no exceptions (a single missed ?v= causes duplicate module instances).
+- Section comment headers in snap.js and at every hook point.
+- Bump the UI footer version string.
+- Do not touch resize/rotate snap logic. Do not implement curve snapping.
+- Conventional Commit when done (feat: ...), then report exactly what changed
+  and which files' ?v= were updated.
+
+Do not ask clarifying questions. Make reasonable assumptions and proceed.
+```
+
+### 검증 순서 (한 번에 보지 말고 2단계)
+
+**1단계 — 자석 자체**
+- Shift 누르고 사각형을 다른 사각형에 40px 이내로 → 찰싹 붙고 각도 맞는지.
+- **회전시킨 사각형끼리도** 되는지 (핵심 — 기존 버그 지점).
+- Shift 안 누르면 아무 스냅도 안 걸리는지(평소 꺼짐).
+
+**2단계 — 예고 오버레이**
+- 40~80px에서 빨간 점 2개 + 얇은 빨간 점선 뜨는지. 변끼리면 변 중점에 찍히는지.
+- 더 가까이(40px) 가면 예고→부착 전환되는지.
+- Shift 뗌/드래그 끝/멀어짐 시 오버레이 사라지는지. 가장 가까운 한 쌍만 그려지는지.
+
+**회귀 확인**
+- 평범한 이동 정상. **Undo로 스냅 이동이 한 번에 되돌려지는지**(live commit 구조). 다중 선택 이동 동작.
+
+**실패 시**
+- 고치라 하지 말고 "원인 위치만 보고"로 전환(핸들 버그 교훈).
+- 스냅 아예 안 먹으면 **`?v=` 누락부터 의심**. 줌에서 임계값 이상하면 `40/zoom`·`80/zoom` 환산 오류.
+
+### 끝난 뒤 다음 묶음
+- **선 끝점 스냅**: 원본 `_find_snap_target`(items.py ~1534) 이식. release 시 끝점끼리 위치+각도 이어붙임. 광선 작도용.
+- 변-평행 정밀 정렬(B안), 곡선 접점 스냅(v2), 객체별 on/off — 필요 느껴지면.
