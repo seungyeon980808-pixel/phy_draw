@@ -7,8 +7,8 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.40.5";
-import { DEFAULT_TEXT_FONT } from "./state.js?v=0.40.5";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.40.6";
+import { DEFAULT_TEXT_FONT } from "./state.js?v=0.40.6";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -86,6 +86,16 @@ export function render(state) {
     if (!_isActive) el.setAttribute("opacity", "0.5");
     if (!_isActive) el.setAttribute("pointer-events", "none");
     scene.appendChild(el);
+    // Open-path hit twin: only on the active layer (other layers stay non-interactive).
+    // The twin width is HIT_PX / getZoom(), so a zoom/viewBox change recomputes it via
+    // the store subscribe → render path (main.js: state.subscribe(render)).
+    if (_isActive) {
+      const twin = makeHitTwin(obj);
+      if (twin) {
+        el.setAttribute("pointer-events", "none"); // only the twin receives events
+        scene.appendChild(twin);
+      }
+    }
   }
 
   // ----- ruler guides: editing aids only; export builds from objects separately -----
@@ -199,6 +209,7 @@ export function render(state) {
       ln.setAttribute("stroke-width", "0.4"); // world units
       ln.setAttribute("stroke-dasharray", "0.6 0.6");
       ln.style.stroke = _selColor;
+      ln.setAttribute("pointer-events", "none"); // decorative; the hit twin owns events
       scene.appendChild(ln);
     } else if (sel.type === "polyline" && sel.closed === true) {
       // Closed polyline takes branch-A (face) treatment: a dashed bbox rect guide,
@@ -224,6 +235,7 @@ export function render(state) {
       pl.setAttribute("stroke-width", "0.4"); // world units
       pl.setAttribute("stroke-dasharray", "0.6 0.6");
       pl.style.stroke = _selColor;
+      pl.setAttribute("pointer-events", "none"); // decorative; the hit twin owns events
       scene.appendChild(pl);
     } else if (sel.type === "curve" && sel.closed === true) {
       // Closed curve: bbox rect guide (same as closed polyline).
@@ -248,6 +260,7 @@ export function render(state) {
       cv.setAttribute("stroke-width", "0.4"); // world units
       cv.setAttribute("stroke-dasharray", "0.6 0.6");
       cv.style.stroke = _selColor;
+      cv.setAttribute("pointer-events", "none"); // decorative; the hit twin owns events
       scene.appendChild(cv);
     } else if (sel.type === "text") {
       // getBBox() on the already-rendered <text> element gives the exact visual bounds.
@@ -485,6 +498,49 @@ function renderGrid(state) {
   }
 
   return g;
+}
+
+/* ===== HIT TWIN (open paths: one fat invisible band unifies hover + grab/click) =====
+ * A thin line/polyline/curve is only ~1px of real geometry, so the visible stroke
+ * is the lone element that can receive pointer events — making thin open paths
+ * almost impossible to grab (transform.js reads e.target's data-id) and giving no
+ * hover affordance. Fix: for every OPEN path render a transparent duplicate over
+ * the SAME geometry with a fat, zoom-INVARIANT stroke (HIT_PX screen px / getZoom()
+ * world units) carrying the SAME data-id. pointer-events="stroke" makes the band
+ * hittable despite transparent paint; cursor:pointer drives hover + selection/grab
+ * from this ONE element. The visible stroke is set pointer-events="none" so only the
+ * twin is interactive. Closed shapes already grab via their (transparent-capable)
+ * fill, so they get no twin. Twins exist only in the editor render() — export builds
+ * from renderObject(), so they never reach SVG/PNG output or the export viewBox. */
+const HIT_PX = 12; // constant on-screen hit width (px), mirroring the handle/zoom pattern
+
+function makeHitTwin(obj) {
+  let twin = null;
+  if (obj.type === "line") {
+    twin = document.createElementNS(SVG_NS, "line");
+    twin.setAttribute("x1", obj.p1.x);
+    twin.setAttribute("y1", obj.p1.y);
+    twin.setAttribute("x2", obj.p2.x);
+    twin.setAttribute("y2", obj.p2.y);
+  } else if (obj.type === "polyline" && obj.closed !== true) {
+    twin = document.createElementNS(SVG_NS, "polyline");
+    twin.setAttribute("points", (obj.points || []).map((p) => `${p.x},${p.y}`).join(" "));
+  } else if (obj.type === "curve" && obj.closed !== true) {
+    twin = document.createElementNS(SVG_NS, "path");
+    twin.setAttribute("d", catmullRomPath(obj.points || []));
+  } else {
+    return null; // not an open path → no twin (closed shapes grab via fill)
+  }
+  twin.setAttribute("fill", "none");
+  twin.setAttribute("stroke", "transparent");
+  twin.setAttribute("stroke-width", HIT_PX / getZoom()); // zoom-invariant screen px
+  twin.setAttribute("stroke-linecap", "round");
+  twin.setAttribute("stroke-linejoin", "round");
+  twin.setAttribute("pointer-events", "stroke"); // hittable even though transparent
+  twin.style.cursor = "pointer";
+  if (obj.id) twin.dataset.id = obj.id;
+  twin.dataset.ui = "hit-twin";
+  return twin;
 }
 
 /* ----- per-object dispatch (one branch per shape type) ----- */

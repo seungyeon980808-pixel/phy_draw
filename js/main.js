@@ -7,17 +7,17 @@
 //   4. init tools (tool selection + the rectangle draw pipeline).
 
 // ?v= matches index.html so a version bump reloads every module, not just main.
-import { state } from "./state.js?v=0.40.5";
-import { render } from "./render.js?v=0.40.5";
-import { initViewport, getZoom, screenToWorld, centerView, setCenterLocked } from "./viewport.js?v=0.40.5";
-import { initTools } from "./tools.js?v=0.40.5";
-import { initTransform, undo, redo } from "./transform.js?v=0.40.5";
-import { initInspector } from "./inspector.js?v=0.40.5";
-import { initProjectIO } from "./project-io.js?v=0.40.5";
-import { initExportDialog } from "./export-dialog.js?v=0.40.5";
-import { initRuler, setRulerVisible } from "./ruler.js?v=0.40.5";
-import { initSettings } from "./settings.js?v=0.40.5";
-import { initImageObjectify } from "./image-objectify.js?v=0.40.5";
+import { state } from "./state.js?v=0.40.6";
+import { render } from "./render.js?v=0.40.6";
+import { initViewport, getZoom, screenToWorld, centerView, setCenterLocked } from "./viewport.js?v=0.40.6";
+import { initTools } from "./tools.js?v=0.40.6";
+import { initTransform, undo, redo } from "./transform.js?v=0.40.6";
+import { initInspector } from "./inspector.js?v=0.40.6";
+import { initProjectIO } from "./project-io.js?v=0.40.6";
+import { initExportDialog } from "./export-dialog.js?v=0.40.6";
+import { initRuler, setRulerVisible } from "./ruler.js?v=0.40.6";
+import { initSettings } from "./settings.js?v=0.40.6";
+import { initImageObjectify } from "./image-objectify.js?v=0.40.6";
 
 const svg = document.getElementById("canvas");
 const zoomReadout = document.getElementById("zoom-readout");

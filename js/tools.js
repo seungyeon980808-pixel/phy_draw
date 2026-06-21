@@ -11,11 +11,11 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.40.5";
+import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.40.6";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt,
-} from "./state.js?v=0.40.5";
+} from "./state.js?v=0.40.6";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -148,22 +148,11 @@ function setupDrawing() {
   window.addEventListener("keydown", (e) => { if (e.code === "Space") spaceHeld = true; });
   window.addEventListener("keyup", (e) => { if (e.code === "Space") spaceHeld = false; });
 
-  _svg.addEventListener("pointermove", (e) => {
-    const s = _state.get();
-    if (spaceHeld || s.activeTool !== "V" || e.target?.dataset?.handle) {
-      _svg.style.cursor = "";
-      return;
-    }
-    const p = screenToWorld(_svg, s.viewBox, e.clientX, e.clientY);
-    const worldUnitsPerPx = s.viewBox.w / _svg.getBoundingClientRect().width;
-    const tol = HIT_TOL_PX * worldUnitsPerPx;
-    const lineTol = LINE_HIT_TOL_PX / getRenderScale();
-    const hitId = pickSelectableObject(s, p, tol, lineTol);
-    const hit = hitId === null ? null : s.objects.find((o) => o.id === hitId);
-    _svg.style.cursor = isBasicLine(hit) ? "grab" : "";
-  });
-
-  _svg.addEventListener("pointerleave", () => { _svg.style.cursor = ""; });
+  // HOVER CURSOR is now driven by the open-path hit twin (render.js): each twin
+  // carries cursor:pointer over the SAME fat transparent band that drives click
+  // selection and grab/move, so hover and click share one element. The old
+  // pointermove handler here set a "grab" cursor only for basic lines via a
+  // separate geometric test — that divergence is removed so the two can't disagree.
 
   // V (select): click hit-tests committed rects by world bbox, topmost wins.
   // Clicking empty space clears the selection.
