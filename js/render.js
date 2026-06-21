@@ -7,8 +7,8 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.39.0";
-import { DEFAULT_TEXT_FONT } from "./state.js?v=0.39.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.40.0";
+import { DEFAULT_TEXT_FONT } from "./state.js?v=0.40.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -656,7 +656,12 @@ function polylineMidpoint(pts) {
 
 /* ----- line: endpoint-based shape (DESIGN 2-1 branch B); p1?뭦2, no fill ----- */
 function renderLine(obj) {
-  const arrowHead = obj.arrowHead ?? "none";
+  const savedArrowHead = obj.arrowHead ?? "none";
+  // Files created before lineStyle used arrowHead="center" for midpoint arrows.
+  let lineStyle = obj.lineStyle
+    ?? (savedArrowHead === "center" ? "middleArrow" : savedArrowHead === "none" ? "solid" : "arrow");
+  if (!["solid", "arrow", "middleArrow", "dimensionArrow"].includes(lineStyle)) lineStyle = "solid";
+  const arrowHead = lineStyle === "arrow" ? savedArrowHead : "none";
   const sw = obj.strokeWidth ?? 0.2;
   const color = grayHex(obj.strokeLevel);
 
@@ -678,6 +683,9 @@ function renderLine(obj) {
     } else if (arrowHead === "both") {
       lx2 -= nx * arrowLen; ly2 -= ny * arrowLen;
       lx1 += nx * arrowLen; ly1 += ny * arrowLen;
+    } else if (lineStyle === "dimensionArrow") {
+      lx2 -= nx * arrowLen; ly2 -= ny * arrowLen;
+      lx1 += nx * arrowLen; ly1 += ny * arrowLen;
     }
     // "center" and "none": no adjustment
   }
@@ -692,7 +700,7 @@ function renderLine(obj) {
   el.setAttribute("stroke-width", sw);
   applyDash(el, obj);
 
-  if (arrowHead === "none" || L === 0) {
+  if (lineStyle === "solid" || L === 0) {
     if (obj.id) el.dataset.id = obj.id;
     return el;
   }
@@ -708,10 +716,30 @@ function renderLine(obj) {
   } else if (arrowHead === "both") {
     g.appendChild(makeArrowHead(obj.p2.x, obj.p2.y, nx, ny, sw, color));
     g.appendChild(makeArrowHead(obj.p1.x, obj.p1.y, -nx, -ny, sw, color));
-  } else if (arrowHead === "center") { // legacy project compatibility
+  } else if (lineStyle === "middleArrow") {
     const mx = (obj.p1.x + obj.p2.x) / 2;
     const my = (obj.p1.y + obj.p2.y) / 2;
     g.appendChild(makeArrowHead(mx, my, nx, ny, sw, color));
+  } else if (lineStyle === "dimensionArrow") {
+    g.appendChild(makeArrowHead(obj.p2.x, obj.p2.y, nx, ny, sw, color));
+    g.appendChild(makeArrowHead(obj.p1.x, obj.p1.y, -nx, -ny, sw, color));
+
+    const label = document.createElementNS(SVG_NS, "text");
+    const mx = (obj.p1.x + obj.p2.x) / 2;
+    const my = (obj.p1.y + obj.p2.y) / 2;
+    label.setAttribute("x", mx);
+    label.setAttribute("y", my);
+    label.setAttribute("fill", color);
+    label.setAttribute("font-size", Math.max(2.5, sw * 8));
+    label.setAttribute("font-family", DEFAULT_TEXT_FONT);
+    label.setAttribute("text-anchor", "middle");
+    label.setAttribute("dominant-baseline", "central");
+    label.setAttribute("paint-order", "stroke");
+    label.setAttribute("stroke", "white");
+    label.setAttribute("stroke-width", Math.max(0.8, sw * 3));
+    label.setAttribute("stroke-linejoin", "round");
+    label.textContent = obj.dimensionLabel || "d";
+    g.appendChild(label);
   }
 
   return g;

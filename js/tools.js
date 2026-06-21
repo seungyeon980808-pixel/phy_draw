@@ -11,11 +11,11 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.39.0";
+import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.40.0";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt,
-} from "./state.js?v=0.39.0";
+} from "./state.js?v=0.40.0";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -720,6 +720,7 @@ function makeLine(a, b) {
     strokeLevel: 0,        // 0 = black (DESIGN 2-2)
     strokeWidth: DEFAULT_STROKE_WIDTH,
     // ----- branch-B common line props (arrow + dashes) -----
+    lineStyle: "solid",    // "solid" | "arrow" | "middleArrow" | "dimensionArrow"
     arrowHead: "none",     // "none" | "end" | "start" | "both"
     dashLength: 0,         // world units (mm); 0 = solid (no dasharray)
     dashGap: 0,            // world units (mm); 0 = solid

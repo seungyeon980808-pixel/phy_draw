@@ -1,7 +1,7 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.39.0";
-import { openFontModalForSelection } from "./tools.js?v=0.39.0";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.40.0";
+import { openFontModalForSelection } from "./tools.js?v=0.40.0";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -286,6 +286,7 @@ export function initInspector(state) {
       if (o && (o.type === "line" || o.type === "polyline")) {
         const current = ARROW_CYCLE.includes(o.arrowHead) ? o.arrowHead : "none";
         o.arrowHead = ARROW_CYCLE[(ARROW_CYCLE.indexOf(current) + 1) % ARROW_CYCLE.length];
+        if (o.type === "line") o.lineStyle = "arrow";
         s2.undoStack.push(snap);
         s2.redoStack = [];
       }
@@ -295,6 +296,75 @@ export function initInspector(state) {
   arrowRow.appendChild(arrowLbl);
   arrowRow.appendChild(arrowBtns);
   sec1Body.appendChild(arrowRow);
+
+  // Straight-line rendering mode. Endpoint direction remains a separate cycle.
+  const lineModeRow = document.createElement("div");
+  lineModeRow.className = "insp-row";
+  const lineModeLbl = document.createElement("label");
+  lineModeLbl.className = "insp-field-label";
+  lineModeLbl.textContent = "Line mode";
+  const lineModeBtns = document.createElement("div");
+  lineModeBtns.style.cssText = "display:flex;gap:4px;flex-wrap:wrap;";
+  const LINE_MODES = [
+    { value: "solid", label: "Solid", icon: ARROW_ICONS.none },
+    { value: "arrow", label: "Arrow", icon: ARROW_ICONS.end },
+    { value: "middleArrow", label: "Middle arrow", icon: ARROW_ICONS.center },
+    { value: "dimensionArrow", label: "Dimension", icon: ARROW_ICONS.both },
+  ];
+  const lineModeBtnEls = {};
+  LINE_MODES.forEach(({ value, label, icon }) => {
+    const btn = document.createElement("button");
+    btn.title = label;
+    btn.setAttribute("aria-label", label);
+    btn.innerHTML = `<svg width="40" height="24" viewBox="0 0 40 24">${icon}</svg>`;
+    btn.style.cssText = "width:40px;height:24px;padding:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid #3a3c41;border-radius:3px;background:#1e1f22;color:#dcddde;";
+    btn.addEventListener("click", () => {
+      const s = state.get();
+      const ids = s.selectedIds || [];
+      if (ids.length !== 1) return;
+      const snap = JSON.parse(JSON.stringify(s.objects));
+      state.update((s2) => {
+        const o = s2.objects.find((item) => item.id === ids[0]);
+        if (!o || o.type !== "line") return;
+        o.lineStyle = value;
+        if (value === "arrow" && !ARROW_CYCLE.includes(o.arrowHead)) o.arrowHead = "end";
+        if (value === "arrow" && o.arrowHead === "none") o.arrowHead = "end";
+        if (value === "dimensionArrow" && o.dimensionLabel == null) o.dimensionLabel = "d";
+        s2.undoStack.push(snap);
+        s2.redoStack = [];
+      });
+    });
+    lineModeBtnEls[value] = btn;
+    lineModeBtns.appendChild(btn);
+  });
+  lineModeRow.appendChild(lineModeLbl);
+  lineModeRow.appendChild(lineModeBtns);
+  sec1Body.appendChild(lineModeRow);
+
+  const dimensionLabelRow = document.createElement("div");
+  dimensionLabelRow.className = "insp-row";
+  const dimensionLabelLbl = document.createElement("label");
+  dimensionLabelLbl.className = "insp-field-label";
+  dimensionLabelLbl.textContent = "Label";
+  const dimensionLabelInp = document.createElement("input");
+  dimensionLabelInp.type = "text";
+  dimensionLabelInp.maxLength = 40;
+  dimensionLabelInp.style.cssText = "width:90px;font-size:11px;border:1px solid #3a3c41;border-radius:3px;padding:3px 5px;background:#1e1f22;color:#dcddde;";
+  dimensionLabelInp.addEventListener("change", () => {
+    const s = state.get();
+    const id = (s.selectedIds || [])[0];
+    const snap = JSON.parse(JSON.stringify(s.objects));
+    state.update((s2) => {
+      const o = s2.objects.find((item) => item.id === id);
+      if (!o || o.type !== "line") return;
+      o.dimensionLabel = dimensionLabelInp.value || "d";
+      s2.undoStack.push(snap);
+      s2.redoStack = [];
+    });
+  });
+  dimensionLabelRow.appendChild(dimensionLabelLbl);
+  dimensionLabelRow.appendChild(dimensionLabelInp);
+  sec1Body.appendChild(dimensionLabelRow);
 
   // ---- Dash presets + length/gap sliders (line/polyline/curve) ----
   const dashRow = document.createElement("div");
@@ -1330,8 +1400,20 @@ export function initInspector(state) {
       angleInp.value = ang.toFixed(1);
     }
 
+    lineModeRow.style.display = isStraightLine ? "" : "none";
+    let lineMode = obj.lineStyle
+      ?? (obj.arrowHead === "center" ? "middleArrow" : (obj.arrowHead ?? "none") === "none" ? "solid" : "arrow");
+    if (!lineModeBtnEls[lineMode]) lineMode = "solid";
+    Object.entries(lineModeBtnEls).forEach(([value, btn]) => {
+      const active = value === lineMode;
+      btn.style.background = active ? "#4a9eff" : "#1e1f22";
+      btn.style.borderColor = active ? "#4a9eff" : "#3a3c41";
+    });
+    dimensionLabelRow.style.display = isStraightLine && lineMode === "dimensionArrow" ? "" : "none";
+    if (document.activeElement !== dimensionLabelInp) dimensionLabelInp.value = obj.dimensionLabel ?? "d";
+
     // Arrow head: open line + open polyline (closed polyline = filled shape, no arrow).
-    const showArrow = obj.type === "line" || (obj.type === "polyline" && !isClosedPoly);
+    const showArrow = (obj.type === "line" && lineMode === "arrow") || (obj.type === "polyline" && !isClosedPoly);
     arrowRow.style.display = showArrow ? "" : "none";
     if (showArrow) {
       const ah = obj.arrowHead ?? "none";
