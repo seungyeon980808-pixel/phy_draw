@@ -7,10 +7,17 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.32.0";
-import { DEFAULT_TEXT_FONT } from "./state.js?v=0.32.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.33.0";
+import { DEFAULT_TEXT_FONT } from "./state.js?v=0.33.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+
+/* ===== SNAP PREVIEW STATE: transient render data, never persisted ===== */
+let snapPreview = null;
+
+export function setSnapPreview(preview) {
+  snapPreview = preview;
+}
 
 /* rotation-zone cursor: clockwise circular arrow (20횞20, 24횞24 viewBox) */
 const ROT_CURSOR = (() => {
@@ -310,6 +317,9 @@ export function render(state) {
       }
     }
   }
+
+  /* ===== SNAP PREVIEW OVERLAY HOOK: same transient layer as selection handles ===== */
+  renderSnapPreview(scene, getZoom());
 
   // ----- live drag preview (ephemeral; not in state.objects yet) -----
   if (state.draft) {
@@ -900,11 +910,40 @@ function renderImage(obj) {
 }
 
 /* ----- rotate point (px,py) about center (cx,cy) by deg degrees (SVG clockwise) ----- */
-function rotPt(px, py, cx, cy, deg) {
+export function rotPt(px, py, cx, cy, deg) {
   const r = (deg * Math.PI) / 180;
   const cos = Math.cos(r), sin = Math.sin(r);
   const dx = px - cx, dy = py - cy;
   return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos };
+}
+
+/* ===== SNAP PREVIEW OVERLAY: closest pair only, zoom-invariant styling ===== */
+function renderSnapPreview(scene, zoom) {
+  if (!snapPreview) return;
+  const scale = zoom > 0 ? zoom : 1;
+  const group = document.createElementNS(SVG_NS, "g");
+  group.setAttribute("id", "snap-preview");
+  group.setAttribute("pointer-events", "none");
+
+  const line = document.createElementNS(SVG_NS, "line");
+  line.setAttribute("x1", snapPreview.from.x);
+  line.setAttribute("y1", snapPreview.from.y);
+  line.setAttribute("x2", snapPreview.to.x);
+  line.setAttribute("y2", snapPreview.to.y);
+  line.setAttribute("stroke", "#e03131");
+  line.setAttribute("stroke-width", 1 / scale);
+  line.setAttribute("stroke-dasharray", `${4 / scale} ${3 / scale}`);
+  group.appendChild(line);
+
+  for (const point of [snapPreview.from, snapPreview.to]) {
+    const dot = document.createElementNS(SVG_NS, "circle");
+    dot.setAttribute("cx", point.x);
+    dot.setAttribute("cy", point.y);
+    dot.setAttribute("r", 4 / scale);
+    dot.setAttribute("fill", "#e03131");
+    group.appendChild(dot);
+  }
+  scene.appendChild(group);
 }
 
 /* ----- grayscale level (0??55) ??hex; 0 = black, 255 = white (DESIGN 7-2) ----- */

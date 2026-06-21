@@ -13,8 +13,9 @@
 // we can distinguish "click on already-selected ??move allowed" from "click
 // selects a new object ??just select, no move this press."
 
-import { screenToWorld, getRenderScale } from "./viewport.js?v=0.32.0";
-import { resolveSnap } from "./snap.js?v=0.32.0";
+import { screenToWorld, getRenderScale } from "./viewport.js?v=0.33.0";
+import { resolveSnap } from "./snap.js?v=0.33.0";
+import { setSnapPreview } from "./render.js?v=0.33.0";
 
 /* ----- shared lock guard: locked objects are excluded from mutating ops ----- */
 function isMutable(o) { return o && !o.locked; }
@@ -127,6 +128,7 @@ export function redo(state) {
 /* ===== MOVE GESTURE ===== */
 
 const MOVE_THRESHOLD = 0.01; // world units; below this = plain click, not a drag
+const SHAPE_MOVE_TYPES = new Set(["rect", "ellipse", "triangle"]);
 
 let _moving = false;
 let _moveObjIds = [];
@@ -1105,25 +1107,29 @@ export function initTransform(svg, state) {
     const rawDx = cur.x - _moveStartWorld.x;
     const rawDy = cur.y - _moveStartWorld.y;
 
-    /* ----- SNAP HOOK (see snap.js): adjust the move delta for object snapping.
-     * Alt bypasses snapping; Ctrl enables magnet attach; align is always on. ----- */
+    /* ===== SNAP RESOLVE HOOK: Shift-only preview/attach before applyDelta ===== */
     const snapped = resolveSnap(
       _moveObjIds,
       _moveOrigObjs,
       { dx: rawDx, dy: rawDy },
-      { alt: e.altKey, ctrl: e.ctrlKey || e.metaKey },
+      { shift: e.shiftKey },
       getRenderScale(),
       state,
       svg,
     );
     const dx = snapped.dx, dy = snapped.dy;
 
+    /* ===== SNAP PREVIEW HOOK: publish transient pair before the repaint ===== */
+    setSnapPreview(snapped.preview);
     state.update((s) => {
       _moveObjIds.forEach(id => {
         const obj = s.objects.find((o) => o.id === id);
         const orig = _moveOrigObjs[id];
         if (!obj || !orig) return;
         applyDelta(obj, orig, dx, dy);
+        if (SHAPE_MOVE_TYPES.has(obj.type)) {
+          obj.rotation = snapped.rotation === null ? (orig.rotation || 0) : snapped.rotation;
+        }
       });
     });
 
@@ -1206,12 +1212,17 @@ export function initTransform(svg, state) {
     if (!_moving) return;
     _moving = false;
 
+    /* ===== SNAP CLEAR HOOK: drag completion removes the transient overlay ===== */
+    setSnapPreview(null);
+
     if (_didMove && _pendingSnapshot) {
       const snap = _pendingSnapshot;
       state.update((s) => {
         s.undoStack.push(snap);
         s.redoStack = [];
       });
+    } else {
+      state.update(() => {});
     }
 
     _moveStartWorld = null;
@@ -1223,8 +1234,27 @@ export function initTransform(svg, state) {
   window.addEventListener("pointerup", finishGesture);
   window.addEventListener("mouseup", finishGesture);
 
+  /* ===== SNAP CLEAR HOOK: releasing Shift clears preview without pointer motion ===== */
+  window.addEventListener("keyup", (e) => {
+    if (!_moving || e.key !== "Shift") return;
+    setSnapPreview(null);
+    const rawDx = _lastMouseWorld && _moveStartWorld ? _lastMouseWorld.x - _moveStartWorld.x : 0;
+    const rawDy = _lastMouseWorld && _moveStartWorld ? _lastMouseWorld.y - _moveStartWorld.y : 0;
+    state.update((s) => {
+      _moveObjIds.forEach((id) => {
+        const obj = s.objects.find((o) => o.id === id);
+        const orig = _moveOrigObjs[id];
+        if (!obj || !orig) return;
+        applyDelta(obj, orig, rawDx, rawDy);
+        if (SHAPE_MOVE_TYPES.has(obj.type)) obj.rotation = orig.rotation || 0;
+      });
+    });
+  });
+
   /* Pointer cancellation must not leave a live gesture or preview state behind. */
   window.addEventListener("pointercancel", () => {
+    /* ===== SNAP CLEAR HOOK: cancelled drags discard the transient overlay ===== */
+    setSnapPreview(null);
     const snap = _rotPendingSnap || _pendingSnapshot;
     if (snap) state.update((s) => { s.objects = cloneObjects(snap); });
     _moving = _handleDragging = _groupResizing = _rotating = _groupRotating = false;
