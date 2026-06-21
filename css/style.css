@@ -163,6 +163,19 @@ body {
   display: none;
 }
 
+.tool-section-body-wide { grid-template-columns: 1fr; }
+.advanced-tool-btn {
+  width: 100%;
+  padding: 8px 4px;
+  font: 500 11px/1.3 inherit;
+  color: var(--c-text);
+  background: var(--btn-tool-bg);
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.advanced-tool-btn:hover { background: var(--btn-tool-hover); }
+
 .tool-btn {
   display: flex;
   align-items: center;
@@ -487,6 +500,47 @@ body {
   border-color: var(--accent);
 }
 .modal-btn-primary:hover { background: var(--accent-hover); }
+
+/* ===== IMAGE OBJECTIFY ===== */
+.modal-objectify { width: 620px; }
+.objectify-description,
+.objectify-status {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.objectify-status.is-error { color: #e35d6a; }
+.objectify-dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 76px;
+  padding: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-input);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: center;
+}
+.objectify-dropzone.is-dragover { border-color: var(--accent); background: var(--btn-tool-hover); }
+.objectify-preview {
+  display: block;
+  width: 100%;
+  max-height: 310px;
+  object-fit: contain;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.objectify-controls { display: grid; grid-template-columns: 1fr 160px; gap: 12px; }
+.objectify-range-row { display: flex; align-items: center; gap: 8px; }
+.objectify-range-row input[type="range"] { flex: 1; }
+.objectify-range-value { min-width: 32px; text-align: right; font: 12px "IBM Plex Mono", monospace; }
+@media (max-width: 680px) {
+  .objectify-controls { grid-template-columns: 1fr; }
+}
 
 .zoom-readout {
   margin-left: auto;

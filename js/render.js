@@ -7,8 +7,8 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.35.0";
-import { DEFAULT_TEXT_FONT } from "./state.js?v=0.35.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.36.0";
+import { DEFAULT_TEXT_FONT } from "./state.js?v=0.36.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -903,6 +903,7 @@ function renderImage(obj) {
   el.setAttribute("height", obj.h);
   el.setAttribute("href", obj.src);
   el.setAttribute("preserveAspectRatio", "none");
+  if (obj.opacity != null) el.setAttribute("opacity", obj.opacity);
   if (obj.id) el.dataset.id = obj.id;
   const rot = obj.rotation ?? 0;
   if (rot !== 0) {
