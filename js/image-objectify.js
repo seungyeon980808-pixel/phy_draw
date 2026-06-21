@@ -2,8 +2,9 @@
 
 const ACCEPTED_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const MAX_PROCESS_DIMENSION = 1600;
+const MAX_LINES = 12;
 let idCounter = 0;
-const OBJECTIFY_STROKE_WIDTH = 0.5;
+const OBJECTIFY_STROKE_WIDTH = 1;
 
 function cloneObjects(objects) {
   return JSON.parse(JSON.stringify(objects));
@@ -19,6 +20,135 @@ function buildDarkMask(canvas, threshold) {
   return dark;
 }
 
+function cross(a, b, c) {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+function convexHull(points) {
+  const sorted = points.slice().sort((a, b) => a.x - b.x || a.y - b.y);
+  if (sorted.length <= 3) return sorted;
+  const lower = [];
+  for (const point of sorted) {
+    while (lower.length >= 2 && cross(lower.at(-2), lower.at(-1), point) <= 0) lower.pop();
+    lower.push(point);
+  }
+  const upper = [];
+  for (let i = sorted.length - 1; i >= 0; i -= 1) {
+    const point = sorted[i];
+    while (upper.length >= 2 && cross(upper.at(-2), upper.at(-1), point) <= 0) upper.pop();
+    upper.push(point);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+function pointLineDistance(point, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  if (dx === 0 && dy === 0) return Math.hypot(point.x - a.x, point.y - a.y);
+  return Math.abs(dy * point.x - dx * point.y + b.x * a.y - b.y * a.x) / Math.hypot(dx, dy);
+}
+
+function pointSegmentDistance(point, a, b) {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (!lengthSquared) return Math.hypot(point.x - a.x, point.y - a.y);
+  const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared));
+  return Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
+}
+
+function simplifyPolyline(points, tolerance) {
+  if (points.length <= 3) return points;
+  let farthest = 0, index = -1;
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const distance = pointLineDistance(points[i], points[0], points.at(-1));
+    if (distance > farthest) { farthest = distance; index = i; }
+  }
+  if (farthest <= tolerance) return [points[0], points.at(-1)];
+  const left = simplifyPolyline(points.slice(0, index + 1), tolerance);
+  const right = simplifyPolyline(points.slice(index), tolerance);
+  return left.slice(0, -1).concat(right);
+}
+
+function polygonArea(points) {
+  let area = 0;
+  for (let i = 0; i < points.length; i += 1) {
+    const next = points[(i + 1) % points.length];
+    area += points[i].x * next.y - next.x * points[i].y;
+  }
+  return Math.abs(area) / 2;
+}
+
+function detectOuterFrame(dark, width, height, minLength) {
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  for (let index = 0; index < dark.length; index += 1) {
+    if (!dark[index]) continue;
+    const x = index % width, y = (index / width) | 0;
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+  }
+  const w = maxX - minX + 1, h = maxY - minY + 1;
+  if (maxX < 0 || w < minLength || h < minLength) return null;
+  const band = Math.max(2, Math.round(Math.min(w, h) * 0.012));
+  let top = 0, bottom = 0, left = 0, right = 0;
+  for (let x = minX; x <= maxX; x += 1) {
+    for (let d = 0; d <= band; d += 1) {
+      if (dark[(minY + d) * width + x]) { top += 1; break; }
+    }
+    for (let d = 0; d <= band; d += 1) {
+      if (dark[(maxY - d) * width + x]) { bottom += 1; break; }
+    }
+  }
+  for (let y = minY; y <= maxY; y += 1) {
+    for (let d = 0; d <= band; d += 1) {
+      if (dark[y * width + minX + d]) { left += 1; break; }
+    }
+    for (let d = 0; d <= band; d += 1) {
+      if (dark[y * width + maxX - d]) { right += 1; break; }
+    }
+  }
+  if (Math.min(top / w, bottom / w, left / h, right / h) < 0.65) return null;
+  return { type: "rect", x: minX, y: minY, w, h, area: w * h };
+}
+
+function consolidateFragmentedEllipse(shapes, dark, width, height) {
+  const fragments = shapes.filter((shape) => shape.type === "polyline");
+  if (fragments.length < 3) return shapes;
+  const minX = Math.min(...fragments.map((shape) => shape.x));
+  const minY = Math.min(...fragments.map((shape) => shape.y));
+  const maxX = Math.max(...fragments.map((shape) => shape.x + shape.w - 1));
+  const maxY = Math.max(...fragments.map((shape) => shape.y + shape.h - 1));
+  const w = maxX - minX + 1, h = maxY - minY + 1;
+  if (w < 12 || h < 12) return shapes;
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  const rx = w / 2, ry = h / 2;
+  const band = Math.max(3, Math.round(Math.min(w, h) * 0.035));
+  let supported = 0;
+  const samples = 96;
+  for (let i = 0; i < samples; i += 1) {
+    const angle = i * Math.PI * 2 / samples;
+    const x = Math.round(cx + rx * Math.cos(angle));
+    const y = Math.round(cy + ry * Math.sin(angle));
+    let hit = false;
+    for (let dy = -band; dy <= band && !hit; dy += 1) {
+      for (let dx = -band; dx <= band; dx += 1) {
+        const sx = x + dx, sy = y + dy;
+        if (sx >= 0 && sx < width && sy >= 0 && sy < height && dark[sy * width + sx]) {
+          hit = true;
+          break;
+        }
+      }
+    }
+    if (hit) supported += 1;
+  }
+  if (supported / samples < 0.68) return shapes;
+  const fragmentSet = new Set(fragments);
+  return shapes.filter((shape) => !fragmentSet.has(shape)).concat({
+    type: "ellipse", x: minX, y: minY, w, h,
+    area: fragments.reduce((sum, shape) => sum + shape.area, 0),
+  });
+}
+
 function detectClosedShapes(dark, width, height, minLength) {
   const labels = new Uint32Array(width * height);
   const queue = new Int32Array(width * height);
@@ -32,6 +162,7 @@ function detectClosedShapes(dark, width, height, minLength) {
     let head = 0, tail = 0;
     let minX = width, minY = height, maxX = 0, maxY = 0;
     let touchesEdge = false;
+    const boundary = [];
     labels[start] = componentId;
     queue[tail++] = start;
     while (head < tail) {
@@ -40,6 +171,10 @@ function detectClosedShapes(dark, width, height, minLength) {
       minX = Math.min(minX, x); maxX = Math.max(maxX, x);
       minY = Math.min(minY, y); maxY = Math.max(maxY, y);
       if (x === 0 || y === 0 || x === width - 1 || y === height - 1) touchesEdge = true;
+      if (x === 0 || y === 0 || x === width - 1 || y === height - 1 ||
+          dark[index - 1] || dark[index + 1] || dark[index - width] || dark[index + width]) {
+        boundary.push({ x, y });
+      }
       if (x > 0 && !dark[index - 1] && !labels[index - 1]) {
         labels[index - 1] = componentId; queue[tail++] = index - 1;
       }
@@ -75,9 +210,25 @@ function detectClosedShapes(dark, width, height, minLength) {
       }
       if (expected && mismatch / expected <= 0.18) type = "ellipse";
     }
-    if (type) shapes.push({ type, x: minX, y: minY, w, h });
+    if (type) {
+      shapes.push({ type, x: minX, y: minY, w, h, area: tail });
+      continue;
+    }
+
+    // A large, compact non-elliptic enclosure is one editable polygon, not a
+    // collection of line fragments. The hull intentionally drops raster noise.
+    if (fillRatio >= 0.32 && boundary.length >= 3) {
+      const hull = convexHull(boundary);
+      const hullArea = polygonArea(hull);
+      const solidity = hullArea ? tail / hullArea : 0;
+      const tolerance = Math.max(2, Math.min(w, h) * 0.025);
+      const simplified = simplifyPolyline(hull.concat(hull[0]), tolerance).slice(0, -1);
+      if (solidity >= 0.82 && simplified.length >= 3 && simplified.length <= 16) {
+        shapes.push({ type: "polyline", points: simplified, x: minX, y: minY, w, h, area: tail });
+      }
+    }
   }
-  return shapes;
+  return shapes.sort((a, b) => b.area - a.area).slice(0, 16);
 }
 
 function maskShapes(dark, width, height, shapes) {
@@ -87,7 +238,18 @@ function maskShapes(dark, width, height, shapes) {
     const left = Math.max(0, shape.x - padding), top = Math.max(0, shape.y - padding);
     const right = Math.min(width - 1, shape.x + shape.w - 1 + padding);
     const bottom = Math.min(height - 1, shape.y + shape.h - 1 + padding);
-    if (shape.type === "rect") {
+    if (shape.type === "rect" || shape.type === "polyline") {
+      if (shape.type === "polyline") {
+        const edges = shape.points.map((point, index) => [point, shape.points[(index + 1) % shape.points.length]]);
+        for (let y = top; y <= bottom; y += 1) {
+          for (let x = left; x <= right; x += 1) {
+            if (edges.some(([a, b]) => pointSegmentDistance({ x, y }, a, b) <= padding)) {
+              masked[y * width + x] = 0;
+            }
+          }
+        }
+        continue;
+      }
       for (let y = top; y <= bottom; y += 1) {
         if (y <= shape.y + padding || y >= shape.y + shape.h - 1 - padding) {
           masked.fill(0, y * width + left, y * width + right + 1);
@@ -121,8 +283,8 @@ function mergeLineSegments(segments, minLength) {
     return { ...line, angle, ux, uy, offset, start: Math.min(a, b), end: Math.max(a, b) };
   }).sort((a, b) => (b.end - b.start) - (a.end - a.start));
   const merged = [];
-  const angleTolerance = 10 * Math.PI / 180;
-  const maxGap = Math.max(12, minLength * 0.5);
+  const angleTolerance = 12 * Math.PI / 180;
+  const maxGap = Math.max(20, minLength);
   for (const line of normalized) {
     let target = null;
     let projectedStart = 0, projectedEnd = 0;
@@ -131,7 +293,7 @@ function mergeLineSegments(segments, minLength) {
       angleDistance = Math.min(angleDistance, Math.PI - angleDistance);
       if (angleDistance > angleTolerance) continue;
       const midX = (line.x1 + line.x2) / 2, midY = (line.y1 + line.y2) / 2;
-      if (Math.abs(-other.uy * midX + other.ux * midY - other.offset) > 10) continue;
+      if (Math.abs(-other.uy * midX + other.ux * midY - other.offset) > Math.max(10, minLength * 0.12)) continue;
       const a = other.ux * line.x1 + other.uy * line.y1;
       const b = other.ux * line.x2 + other.uy * line.y2;
       const start = Math.min(a, b), end = Math.max(a, b);
@@ -153,6 +315,7 @@ function mergeLineSegments(segments, minLength) {
     y1: line.uy * line.start + line.ux * line.offset,
     x2: line.ux * line.end - line.uy * line.offset,
     y2: line.uy * line.end + line.ux * line.offset,
+    votes: line.votes || 0,
   })).filter((line) => Math.hypot(line.x2 - line.x1, line.y2 - line.y1) >= minLength);
 }
 
@@ -222,6 +385,7 @@ function detectLineSegments(dark, width, height, minLength) {
       if (runEnd - runStart >= minLength) {
         accepted.push({
           t: peak.t, rho: peak.rho,
+          votes: peak.votes,
           x1: cos * peak.rho + alongX * runStart,
           y1: sin * peak.rho + alongY * runStart,
           x2: cos * peak.rho + alongX * runEnd,
@@ -237,9 +401,35 @@ function detectLineSegments(dark, width, height, minLength) {
 
 function detectObjects(canvas, threshold, minLength) {
   const { width, height } = canvas;
+  const effectiveMinLength = Math.max(minLength, Math.hypot(width, height) * 0.045);
   const dark = buildDarkMask(canvas, threshold);
-  const shapes = detectClosedShapes(dark, width, height, minLength);
-  const segments = detectLineSegments(maskShapes(dark, width, height, shapes), width, height, minLength);
+  const outerFrame = detectOuterFrame(dark, width, height, effectiveMinLength);
+  let shapes = detectClosedShapes(dark, width, height, effectiveMinLength);
+  if (outerFrame) {
+    const edgeTolerance = Math.max(5, Math.min(outerFrame.w, outerFrame.h) * 0.04);
+    shapes = shapes.filter((shape) => {
+      const sameFrame = Math.abs(shape.x - outerFrame.x) <= edgeTolerance &&
+        Math.abs(shape.y - outerFrame.y) <= edgeTolerance &&
+        Math.abs(shape.x + shape.w - outerFrame.x - outerFrame.w) <= edgeTolerance &&
+        Math.abs(shape.y + shape.h - outerFrame.y - outerFrame.h) <= edgeTolerance;
+      if (sameFrame) return false;
+      if (shape.type !== "polyline") return true;
+      const touchesFrame = shape.x - outerFrame.x <= edgeTolerance ||
+        shape.y - outerFrame.y <= edgeTolerance ||
+        outerFrame.x + outerFrame.w - shape.x - shape.w <= edgeTolerance ||
+        outerFrame.y + outerFrame.h - shape.y - shape.h <= edgeTolerance;
+      return !touchesFrame;
+    });
+    shapes.unshift(outerFrame);
+  }
+  shapes = consolidateFragmentedEllipse(shapes, dark, width, height);
+  const segments = detectLineSegments(maskShapes(dark, width, height, shapes), width, height, effectiveMinLength)
+    .sort((a, b) => {
+      const scoreA = Math.hypot(a.x2 - a.x1, a.y2 - a.y1) * (1 + Math.log1p(a.votes));
+      const scoreB = Math.hypot(b.x2 - b.x1, b.y2 - b.y1) * (1 + Math.log1p(b.votes));
+      return scoreB - scoreA;
+    })
+    .slice(0, MAX_LINES);
   return { shapes, segments };
 }
 
@@ -261,7 +451,7 @@ function buildModal() {
         </label>
         <label class="modal-field">
           <span class="modal-label">최소 선 길이 (px)</span>
-          <input id="objectify-min-length" class="modal-input" type="number" min="5" max="1000" step="1" value="30" />
+          <input id="objectify-min-length" class="modal-input" type="number" min="20" max="1000" step="1" value="60" />
         </label>
       </div>
       <label class="modal-field modal-field-row"><input id="objectify-reference" type="checkbox" checked /><span class="modal-label">원본 이미지를 반투명 배경으로 함께 삽입</span></label>
@@ -319,7 +509,12 @@ export function initImageObjectify(state) {
       for (const shape of shapes) {
         ctx.beginPath();
         if (shape.type === "rect") ctx.rect(shape.x, shape.y, shape.w, shape.h);
-        else ctx.ellipse(shape.x + shape.w / 2, shape.y + shape.h / 2, shape.w / 2, shape.h / 2, 0, 0, Math.PI * 2);
+        else if (shape.type === "ellipse") ctx.ellipse(shape.x + shape.w / 2, shape.y + shape.h / 2, shape.w / 2, shape.h / 2, 0, 0, Math.PI * 2);
+        else {
+          ctx.moveTo(shape.points[0].x, shape.points[0].y);
+          for (const point of shape.points.slice(1)) ctx.lineTo(point.x, point.y);
+          ctx.closePath();
+        }
         ctx.stroke();
       }
       for (const line of segments) {
@@ -364,7 +559,7 @@ export function initImageObjectify(state) {
     extractButton.disabled = true;
     setStatus("직선 후보를 찾는 중입니다...");
     try {
-      const minimum = Math.max(5, Number(minLength.value) || 30);
+      const minimum = Math.max(20, Number(minLength.value) || 60);
       ({ shapes, segments } = detectObjects(sourceCanvas, Number(threshold.value), minimum));
       drawPreview(true);
       insertButton.disabled = shapes.length + segments.length === 0;
@@ -401,6 +596,25 @@ export function initImageObjectify(state) {
         });
       }
       for (const shape of shapes) {
+        if (shape.type === "polyline") {
+          const object = {
+            id: `obj_${stamp}_polyline${++idCounter}`,
+            type: "polyline",
+            points: shape.points.map((point) => ({
+              x: fitted.x + point.x * scale,
+              y: fitted.y + point.y * scale,
+            })),
+            closed: true,
+            strokeLevel: 0, strokeWidth: OBJECTIFY_STROKE_WIDTH,
+            arrowHead: "none", dashLength: 0, dashGap: 0,
+            fillLevel: 214, fillNone: true, fillStyle: "solid",
+            rotation: 0, locked: false, positionLocked: false,
+            layerId, order: s.objects.length,
+          };
+          s.objects.push(object);
+          addedIds.push(object.id);
+          continue;
+        }
         const object = {
           id: `obj_${stamp}_${shape.type}${++idCounter}`,
           type: shape.type,
