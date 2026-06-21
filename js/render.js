@@ -7,8 +7,8 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.40.6";
-import { DEFAULT_TEXT_FONT } from "./state.js?v=0.40.6";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.41.0";
+import { DEFAULT_TEXT_FONT } from "./state.js?v=0.41.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -564,6 +564,8 @@ export function renderObject(obj) {
       return renderText(obj);
     case "image":
       return renderImage(obj);
+    case "axes":
+      return renderAxes(obj);
     default:
       return null;
   }
@@ -1026,6 +1028,93 @@ function renderImage(obj) {
   return el;
 }
 
+/* ----- axes: one atomic symbol — both axis lines + arrowheads + ticks + labels
+ * drawn in a SINGLE pass into one <g>. Ticks/labels are PROJECTIONS computed
+ * here from the data (x/y/w/h/showTicks/tickSpacing/label*), never stored as
+ * separate objects — mirroring how text is one box, not per-glyph. Mathematical
+ * convention: +X points right, +Y points UP (screen-up = smaller SVG y). ----- */
+function renderAxes(obj) {
+  const g = document.createElementNS(SVG_NS, "g");
+  if (obj.id) g.dataset.id = obj.id;
+
+  // Transparent body rect over the whole bbox: makes the symbol behave as ONE
+  // solid object — the entire box is a click/drag target (mirrors a rect's fill,
+  // DESIGN 5-3) so body-drag move works from anywhere inside, not only on a line.
+  const body = document.createElementNS(SVG_NS, "rect");
+  body.setAttribute("x", obj.x);
+  body.setAttribute("y", obj.y);
+  body.setAttribute("width", obj.w);
+  body.setAttribute("height", obj.h);
+  body.setAttribute("fill", "transparent");
+  g.appendChild(body);
+
+  const color = grayHex(obj.strokeLevel);
+  const sw = obj.strokeWidth || 0.2;
+  const cx = obj.x + obj.w / 2; // origin = bbox center
+  const cy = obj.y + obj.h / 2;
+  const left = obj.x, right = obj.x + obj.w;
+  const top = obj.y, bottom = obj.y + obj.h; // SVG: top has the smaller y
+
+  const addLine = (x1, y1, x2, y2) => {
+    const l = document.createElementNS(SVG_NS, "line");
+    l.setAttribute("x1", x1); l.setAttribute("y1", y1);
+    l.setAttribute("x2", x2); l.setAttribute("y2", y2);
+    l.setAttribute("stroke", color);
+    l.setAttribute("stroke-width", sw);
+    g.appendChild(l);
+  };
+
+  // ----- axis lines (shortened slightly so the arrowheads cap the ends) -----
+  const head = sw * 4.5; // arrowhead length (matches makeArrowHead)
+  addLine(left, cy, right - head * 0.6, cy);   // X axis (origin → +X)
+  addLine(cx, bottom, cx, top + head * 0.6);   // Y axis (origin → +Y, i.e. up)
+
+  // ----- arrowheads at the +X (right) and +Y (top) ends -----
+  g.appendChild(makeArrowHead(right, cy, 1, 0, sw, color));   // +X → pointing right
+  g.appendChild(makeArrowHead(cx, top, 0, -1, sw, color));    // +Y → pointing up
+
+  // ----- tick marks: stepped out from the origin both directions on each axis -----
+  if (obj.showTicks) {
+    const step = Math.max(obj.tickSpacing || 5, 0.5);
+    const tHalf = sw * 4; // tick half-length (perpendicular to its axis)
+    // X-axis ticks (skip the origin); stop short of the arrowhead.
+    for (let d = step; d <= obj.w / 2 - head * 0.6; d += step) {
+      addLine(cx + d, cy - tHalf, cx + d, cy + tHalf);
+      addLine(cx - d, cy - tHalf, cx - d, cy + tHalf);
+    }
+    // Y-axis ticks (skip the origin); stop short of the arrowhead.
+    for (let d = step; d <= obj.h / 2 - head * 0.6; d += step) {
+      addLine(cx - tHalf, cy + d, cx + tHalf, cy + d);
+      addLine(cx - tHalf, cy - d, cx + tHalf, cy - d);
+    }
+  }
+
+  // ----- axis labels (italic, near each arrow tip) -----
+  const labelSize = Math.max(sw * 14, 3);
+  const addLabel = (text, lx, ly, anchor, baseline) => {
+    if (!text) return;
+    const t = document.createElementNS(SVG_NS, "text");
+    t.setAttribute("x", lx);
+    t.setAttribute("y", ly);
+    t.setAttribute("font-size", labelSize);
+    t.setAttribute("font-style", "italic");
+    t.setAttribute("font-family", DEFAULT_TEXT_FONT);
+    t.setAttribute("fill", color);
+    t.setAttribute("text-anchor", anchor);
+    t.setAttribute("dominant-baseline", baseline);
+    t.textContent = text;
+    g.appendChild(t);
+  };
+  addLabel(obj.labelX, right, cy + labelSize * 0.9, "end", "hanging");  // below +X tip
+  addLabel(obj.labelY, cx + labelSize * 0.5, top, "start", "hanging");  // right of +Y tip
+
+  // ----- rotation: whole symbol turns about its origin (bbox center) -----
+  const rot = obj.rotation ?? 0;
+  if (rot) g.setAttribute("transform", `rotate(${rot} ${cx} ${cy})`);
+
+  return g;
+}
+
 /* ----- rotate point (px,py) about center (cx,cy) by deg degrees (SVG clockwise) ----- */
 export function rotPt(px, py, cx, cy, deg) {
   const r = (deg * Math.PI) / 180;
@@ -1150,7 +1239,7 @@ export function makeFillPattern(obj) {
 /* ----- selection handles: 10-CSS-px white squares, zoom-invariant (DESIGN 5-2) ----- */
 /* ----- bbox of one object in world space (text uses its rendered <text> box) ----- */
 export function singleObjBBox(o, scene) {
-  if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle" || o.type === "image") {
+  if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle" || o.type === "image" || o.type === "axes") {
     const deg = o.rotation || 0;
     if (!deg) return { x: o.x, y: o.y, w: o.w, h: o.h };
     const cx = o.x + o.w / 2, cy = o.y + o.h / 2;
@@ -1241,7 +1330,7 @@ function renderHandles(sel, scene, zoom, activeTool) {
 
   const _closedPoly  = sel.type === "polyline" && sel.closed === true;
   const _closedCurve = sel.type === "curve"    && sel.closed === true;
-  if (sel.type === "rect" || sel.type === "ellipse" || sel.type === "triangle" || sel.type === "image" || _closedPoly || _closedCurve) {
+  if (sel.type === "rect" || sel.type === "ellipse" || sel.type === "triangle" || sel.type === "image" || sel.type === "axes" || _closedPoly || _closedCurve) {
     // Closed polyline/curve reuses branch-A handles on its (axis-aligned) points bbox;
     // neither has x/y/w/h or rotation field, so derive the box and pin deg to 0.
     let x, y, w, h, deg;

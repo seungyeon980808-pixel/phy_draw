@@ -11,11 +11,11 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.40.6";
+import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.41.0";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt,
-} from "./state.js?v=0.40.6";
+} from "./state.js?v=0.41.0";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -567,7 +567,7 @@ function hitTest(objects, p, tol = 0, lineTol = tol) {
     const o = objects[i];
     if (o.type !== "rect" && o.type !== "ellipse" && o.type !== "triangle" &&
         o.type !== "line" && o.type !== "polyline" && o.type !== "curve" &&
-        o.type !== "text" && o.type !== "image") continue;
+        o.type !== "text" && o.type !== "image" && o.type !== "axes") continue;
 
     if (o.type === "text") {
       // Use the rendered SVG element's getBBox for an accurate hit area.
@@ -652,8 +652,9 @@ function hitTest(objects, p, tol = 0, lineTol = tol) {
       continue;
     }
 
-    if (o.type === "rect" || o.type === "image") {
-      // box == actual shape: outward-grown bbox containment
+    if (o.type === "rect" || o.type === "image" || o.type === "axes") {
+      // box == actual shape: outward-grown bbox containment (axes selects as one
+      // indivisible object via its bounding box)
       if (p.x >= o.x - margin && p.x <= o.x + o.w + margin &&
           p.y >= o.y - margin && p.y <= o.y + o.h + margin) return o.id;
       continue;
@@ -688,7 +689,7 @@ function hitTest(objects, p, tol = 0, lineTol = tol) {
 
 /* ----- axis-aligned bounding box of any object (for marquee intersection) ----- */
 function getObjectBBox(o) {
-  if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle" || o.type === "image") {
+  if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle" || o.type === "image" || o.type === "axes") {
     return { x: o.x, y: o.y, w: o.w, h: o.h };
   }
   if (o.type === "line") {

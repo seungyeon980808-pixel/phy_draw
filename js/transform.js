@@ -13,9 +13,9 @@
 // we can distinguish "click on already-selected ??move allowed" from "click
 // selects a new object ??just select, no move this press."
 
-import { screenToWorld, getRenderScale } from "./viewport.js?v=0.40.6";
-import { resolveSnap } from "./snap.js?v=0.40.6";
-import { setSnapPreview } from "./render.js?v=0.40.6";
+import { screenToWorld, getRenderScale } from "./viewport.js?v=0.41.0";
+import { resolveSnap } from "./snap.js?v=0.41.0";
+import { setSnapPreview } from "./render.js?v=0.41.0";
 
 /* ----- shared lock guard: locked objects are excluded from mutating ops ----- */
 function isMutable(o) { return o && !o.locked; }
@@ -174,7 +174,7 @@ function clipboardBBox(objs) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   const acc = (x, y) => { if (x < minX) minX = x; if (y < minY) minY = y; if (x > maxX) maxX = x; if (y > maxY) maxY = y; };
   for (const o of objs) {
-    if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle" || o.type === "image") {
+    if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle" || o.type === "image" || o.type === "axes") {
       acc(o.x, o.y); acc(o.x + (o.w || 0), o.y + (o.h || 0));
     } else if (o.type === "text") {
       acc(o.x, o.y);
@@ -191,7 +191,7 @@ function clipboardBBox(objs) {
 /* ----- set object position from original + delta (avoids float drift) ----- */
 function applyDelta(obj, orig, dx, dy) {
   if (obj.type === "rect" || obj.type === "ellipse" ||
-      obj.type === "triangle" || obj.type === "text" || obj.type === "image") {
+      obj.type === "triangle" || obj.type === "text" || obj.type === "image" || obj.type === "axes") {
     obj.x = orig.x + dx;
     obj.y = orig.y + dy;
   } else if (obj.type === "line") {
@@ -334,7 +334,7 @@ function applyHandleDelta(obj, orig, handle, dx, dy, shiftKey, ctrlKey) {
 
 /* ----- world bbox of one object (text uses its rendered <text> box) ----- */
 function objWorldBBox(o, svg) {
-  if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle" || o.type === "image") {
+  if (o.type === "rect" || o.type === "ellipse" || o.type === "triangle" || o.type === "image" || o.type === "axes") {
     return { x: o.x, y: o.y, w: o.w, h: o.h };
   }
   if (o.type === "text") {
@@ -423,7 +423,7 @@ function applyGroupResize(objs, origObjs, box0, handle, dx, dy) {
   for (const obj of objs) {
     const orig = origObjs[obj.id];
     if (!orig) continue;
-    if (orig.type === "rect" || orig.type === "ellipse" || orig.type === "triangle" || orig.type === "image") {
+    if (orig.type === "rect" || orig.type === "ellipse" || orig.type === "triangle" || orig.type === "image" || orig.type === "axes") {
       const p = mapPt(orig.x, orig.y);
       obj.x = p.x; obj.y = p.y; obj.w = orig.w * sx; obj.h = orig.h * sy;
     } else if (orig.type === "text") {

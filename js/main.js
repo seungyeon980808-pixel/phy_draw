@@ -7,17 +7,18 @@
 //   4. init tools (tool selection + the rectangle draw pipeline).
 
 // ?v= matches index.html so a version bump reloads every module, not just main.
-import { state } from "./state.js?v=0.40.6";
-import { render } from "./render.js?v=0.40.6";
-import { initViewport, getZoom, screenToWorld, centerView, setCenterLocked } from "./viewport.js?v=0.40.6";
-import { initTools } from "./tools.js?v=0.40.6";
-import { initTransform, undo, redo } from "./transform.js?v=0.40.6";
-import { initInspector } from "./inspector.js?v=0.40.6";
-import { initProjectIO } from "./project-io.js?v=0.40.6";
-import { initExportDialog } from "./export-dialog.js?v=0.40.6";
-import { initRuler, setRulerVisible } from "./ruler.js?v=0.40.6";
-import { initSettings } from "./settings.js?v=0.40.6";
-import { initImageObjectify } from "./image-objectify.js?v=0.40.6";
+import { state } from "./state.js?v=0.41.0";
+import { render } from "./render.js?v=0.41.0";
+import { initViewport, getZoom, screenToWorld, centerView, setCenterLocked } from "./viewport.js?v=0.41.0";
+import { initTools } from "./tools.js?v=0.41.0";
+import { initTransform, undo, redo } from "./transform.js?v=0.41.0";
+import { initInspector } from "./inspector.js?v=0.41.0";
+import { initProjectIO } from "./project-io.js?v=0.41.0";
+import { initExportDialog } from "./export-dialog.js?v=0.41.0";
+import { initRuler, setRulerVisible } from "./ruler.js?v=0.41.0";
+import { initSettings } from "./settings.js?v=0.41.0";
+import { initImageObjectify } from "./image-objectify.js?v=0.41.0";
+import { initTemplates } from "./templates.js?v=0.41.0";
 
 const svg = document.getElementById("canvas");
 const zoomReadout = document.getElementById("zoom-readout");
@@ -132,6 +133,9 @@ initSettings(state);
 
 /* ----- advanced: local image-to-line rough draft extraction ----- */
 initImageObjectify(state);
+
+/* ----- template library: 기호 패널 클릭 → 캔버스에 심볼 instantiate ----- */
+initTemplates(svg);
 
 /* ===== TOOL PANEL: collapsible section toggle (event delegation) ===== */
 (function initToolSections() {

@@ -1,7 +1,7 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.40.6";
-import { openFontModalForSelection } from "./tools.js?v=0.40.6";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.41.0";
+import { openFontModalForSelection } from "./tools.js?v=0.41.0";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -1477,8 +1477,8 @@ export function initInspector(state) {
     fillCP.setDisabled(fn);
     syncFillStyle(obj);
 
-    // Section 3 — shape types only
-    const isShape = SHAPE_TYPES.includes(obj.type);
+    // Section 3 — shape types + axes (size-based: X/Y/W/H/rotation)
+    const isShape = SHAPE_TYPES.includes(obj.type) || obj.type === "axes";
     sec3.style.display = isShape ? "" : "none";
     if (isShape) {
       xF.inp.value   = (obj.x        ?? 0).toFixed(2);
