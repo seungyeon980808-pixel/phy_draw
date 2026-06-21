@@ -1,7 +1,7 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.42.0";
-import { openFontModalForSelection } from "./tools.js?v=0.42.0";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.42.1";
+import { openFontModalForSelection } from "./tools.js?v=0.42.1";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -979,6 +979,38 @@ export function initInspector(state) {
   arcPair.appendChild(swF.el);
   sec3Body.appendChild(arcPair);
 
+  // anglearc-only: free-text label (default "θ"). User types verbatim — no
+  // auto degree sign. Empty string is kept on the object; render.js draws no
+  // label text when it's empty, but the arc itself stays.
+  const labelRow = document.createElement("div");
+  labelRow.className = "insp-row";
+  const labelLbl = document.createElement("label");
+  labelLbl.className = "insp-field-label";
+  labelLbl.textContent = "라벨";
+  const labelInp = document.createElement("input");
+  labelInp.type = "text";
+  labelInp.className = "insp-input";
+  function commitArcLabel() {
+    const s = state.get();
+    const ids = s.selectedIds || [];
+    if (!ids.length) return;
+    const snap = JSON.parse(JSON.stringify(s.objects));
+    state.update((s2) => {
+      const id = (s2.selectedIds || [])[0];
+      const o = s2.objects.find((o) => o.id === id);
+      if (!o || o.locked) return;
+      if ((o.label ?? "") === labelInp.value) return; // no-op → no undo entry
+      s2.undoStack.push(snap);
+      s2.redoStack = [];
+      o.label = labelInp.value;
+    });
+  }
+  labelInp.addEventListener("keydown", (e) => { if (e.key === "Enter") labelInp.blur(); });
+  labelInp.addEventListener("blur", commitArcLabel);
+  labelRow.appendChild(labelLbl);
+  labelRow.appendChild(labelInp);
+  sec3Body.appendChild(labelRow);
+
   const sec3 = makeSection("크기·위치", sec3Body);
   contentEl.appendChild(sec3);
 
@@ -1506,6 +1538,7 @@ export function initInspector(state) {
     rotF.el.style.display = isArc ? "none" : "";
     radF.el.style.display = isArc ? "" : "none";
     arcPair.style.display = isArc ? "flex" : "none";
+    labelRow.style.display = isArc ? "" : "none";
     if (isShape) {
       xF.inp.value   = (obj.x        ?? 0).toFixed(2);
       yF.inp.value   = (-(obj.y      ?? 0)).toFixed(2); // SVG Y down → math Y up
@@ -1519,6 +1552,7 @@ export function initInspector(state) {
       radF.inp.value  = (obj.radius     ?? 0).toFixed(2);
       saF.inp.value   = (obj.startAngle ?? 0).toFixed(1);
       swF.inp.value   = (obj.sweepAngle ?? 0).toFixed(1);
+      labelInp.value  = obj.label ?? "";
     }
 
     // Section 4
@@ -1534,6 +1568,7 @@ export function initInspector(state) {
     radF.inp.disabled = !!obj.locked;
     saF.inp.disabled = !!obj.locked;
     swF.inp.disabled = !!obj.locked;
+    labelInp.disabled = !!obj.locked;
   }
 
   state.subscribe(populate);

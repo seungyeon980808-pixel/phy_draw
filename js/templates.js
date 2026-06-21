@@ -13,7 +13,7 @@
 //   * "composite" — SEVERAL primitives bundled as a group (e.g. lens, pulley).
 //                   NOT implemented yet — see the placeholder below.
 
-import { state } from "./state.js?v=0.42.0";
+import { state } from "./state.js?v=0.42.1";
 
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm) — matches tools.js shapes
 
