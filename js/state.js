@@ -7,7 +7,7 @@
 // `viewBox` mirrors the SVG viewBox and is the ONLY coordinate authority
 // (DESIGN 1-2). Zoom/pan mutate this, never a CSS transform.
 
-import { createStore } from "./store.js?v=0.31.2";
+import { createStore } from "./store.js?v=0.31.5";
 
 /* ===== TEXT FONT OPTIONS (single source for inspector + font modal) =====
  * `css` is used verbatim as both the SVG <text> font-family AND the editor
@@ -27,6 +27,7 @@ export const DEFAULT_TEXT_FONT = TEXT_FONTS[0].css;
 // On-screen px the new-text caret/glyph targets; converted to world units at
 // creation via the true render scale (see tools.js setupTextTool).
 export const DEFAULT_TEXT_SIZE_PX = 14;
+export const DEFAULT_TEXT_SIZE_MM = 3.7;  // fixed world size (mm), zoom-independent (mirrors PyQt PX_PER_MM)
 
 // Font style presets (font-weight × font-style) for the 글꼴 설정 modal.
 export const TEXT_STYLES = [

@@ -11,11 +11,11 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.31.2";
+import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.31.5";
 import {
-  TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX,
+  TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt,
-} from "./state.js?v=0.31.2";
+} from "./state.js?v=0.31.5";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.5; // world units (??.5mm on the 100mm artboard)
@@ -842,15 +842,16 @@ function setupTextTool() {
     if (_textEditor) { _commitText(); return; }
 
     const anchor = screenToWorld(_svg, _state.get().viewBox, e.clientX, e.clientY);
+    const _sc = worldToScreen(_svg, _state.get().viewBox, anchor.x, anchor.y);
     // WYSIWYG: desired on-screen px → WORLD units via the TRUE render scale.
-    const worldFontSize = DEFAULT_TEXT_SIZE_PX / getRenderScale();
+    const worldFontSize = DEFAULT_TEXT_SIZE_MM;
     _openTextEditor({
       x: anchor.x, y: anchor.y, text: "",
       fontSize: worldFontSize, fontFamily: DEFAULT_TEXT_FONT,
       fontWeight: "normal", fontStyle: "normal",
       underline: false, strikeout: false, rotation: 0,
       editingId: null,
-    }, e.clientX, e.clientY, "");
+    }, _sc.x, _sc.y, "");
   });
 }
 
@@ -970,12 +971,17 @@ function _openTextEditor(draft, clientX, clientY, prefill, caretClick = null) {
   // SVG text wraps only at real newlines. Soft wrapping would make the editor
   // show line breaks that do not exist in the stored/rendered string.
   _textEditor.wrap = "off";
+  // Half-leading must match the editor's REAL font size (set dynamically in
+  // _syncEditorFont as dt.fontSize * getRenderScale()) and CSS line-height 1.4,
+  // not the static TEXT_HALF_LEADING_PX (fixed px), or glyphs shift on edit.
+  const _editorPx = _state.get().draftText.fontSize * getRenderScale();
+  const _halfLeading = _editorPx * (1.4 - 1) / 2;   // matches CSS line-height:1.4
   _textEditor.style.left = (clientX - wr.left) + "px";
-  _textEditor.style.top  = (clientY - wr.top - TEXT_HALF_LEADING_PX) + "px";
+  _textEditor.style.top  = (clientY - wr.top - _halfLeading) + "px";
   _textEditor.value = prefill || "";
   _textEditor.rows = Math.max(1, (prefill || "").split("\n").length);
   _syncEditorFont();
-  _textEditor.style.transformOrigin = `0 ${TEXT_HALF_LEADING_PX}px`;
+  _textEditor.style.transformOrigin = `0 ${_halfLeading}px`;
   _textEditor.style.transform = draft.rotation ? `rotate(${draft.rotation}deg)` : "none";
   wrap.appendChild(_textEditor);
   _textEditor.focus();

@@ -13,7 +13,7 @@
 // we can distinguish "click on already-selected ??move allowed" from "click
 // selects a new object ??just select, no move this press."
 
-import { screenToWorld } from "./viewport.js?v=0.31.2";
+import { screenToWorld } from "./viewport.js?v=0.31.5";
 
 /* ----- shared lock guard: locked objects are excluded from mutating ops ----- */
 function isMutable(o) { return o && !o.locked; }
