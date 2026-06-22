@@ -21,9 +21,9 @@
 //               geometry on canvas drag/click via makeShape()/makeCircuit()/the ARC
 //               tool. The registry only names which tool + variant to arm.
 
-import { state } from "./state.js?v=1.1.0";
-import { armSymbol } from "./tools.js?v=1.1.0";
-import { renderObject } from "./render.js?v=1.1.0";
+import { state } from "./state.js?v=1.2.0";
+import { armSymbol } from "./tools.js?v=1.2.0";
+import { renderObject } from "./render.js?v=1.2.0";
 
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm) — matches tools.js shapes
 
@@ -244,7 +244,7 @@ function setStrokeWidth(node, sw) {
   for (const child of node.children) setStrokeWidth(child, sw);
 }
 
-function buildSymbolIcon(id, def) {
+export function buildSymbolIcon(id, def = TEMPLATES[id]) {
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("class", "tool-ico");
   svg.setAttribute("aria-hidden", "true");
@@ -261,7 +261,7 @@ function buildSymbolIcon(id, def) {
 
 // viewBox needs the svg LIVE in the DOM (getBBox). Fit it to the content and give
 // every icon the same on-screen stroke weight.
-function sizeIconViewBox(svg) {
+export function sizeIconViewBox(svg) {
   const g = svg.firstElementChild;
   if (!g) return;
   let bb;
@@ -321,7 +321,7 @@ function renderPanel() {
 }
 
 /* ----- click → creation (functionally identical to the old per-button wiring) ----- */
-function onSymbolClick(symbolId) {
+export function activateTemplate(symbolId) {
   const def = TEMPLATES[symbolId];
   if (!def) return;
   if (def.kind === "atomic") {
@@ -344,6 +344,6 @@ export function initTemplates(svg) {
   panel.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-symbol]");
     if (!btn) return;
-    onSymbolClick(btn.dataset.symbol);
+    activateTemplate(btn.dataset.symbol);
   });
 }
