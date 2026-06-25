@@ -21,9 +21,9 @@
 //               geometry on canvas drag/click via makeShape()/makeCircuit()/the ARC
 //               tool. The registry only names which tool + variant to arm.
 
-import { state } from "./state.js?v=0.15.0";
-import { armSymbol } from "./tools.js?v=0.15.0";
-import { renderObject } from "./render.js?v=0.15.0";
+import { state } from "./state.js?v=0.16.0";
+import { armSymbol } from "./tools.js?v=0.16.0";
+import { renderObject } from "./render.js?v=0.16.0";
 
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm) — matches tools.js shapes
 
@@ -275,6 +275,22 @@ export function sizeIconViewBox(svg) {
   setStrokeWidth(g, ICON_STROKE_PX / scale);
 }
 
+// Build one registry symbol button (UNIQUE data-symbol id) + queue its icon for sizing.
+function makeSymbolButton(id, def, pending) {
+  const btn = document.createElement("button");
+  btn.className = "tool-btn";             // square icon button (reuses active styling)
+  btn.type = "button";
+  btn.dataset.symbol = id;               // UNIQUE per-object id — drives the single-highlight fix
+  btn.title = def.label;                 // name on hover ONLY (tooltip), never inside the button
+
+  const kbd = document.createElement("kbd");
+  const icon = buildSymbolIcon(id, def);
+  kbd.appendChild(icon);
+  btn.appendChild(kbd);
+  pending.push(icon);
+  return btn;
+}
+
 function renderPanel() {
   const host = document.getElementById("symbol-sections");
   if (!host) return;
@@ -282,7 +298,17 @@ function renderPanel() {
 
   const pending = []; // icon svgs to size once they are live in the DOM
 
+  // 공통 객체(좌표축/각도 호)는 별도 카테고리 헤더 없이 기본 도구(V/L/P…) 그룹 안에
+  // 이어 붙인다. 레지스트리 데이터(category 등)는 그대로 두고 렌더 위치만 옮긴다.
+  const basicBody = document.querySelector("#tool-list .tool-section-body");
+  if (basicBody) {
+    Object.keys(TEMPLATES)
+      .filter((id) => TEMPLATES[id].category === "공통")
+      .forEach((id) => basicBody.appendChild(makeSymbolButton(id, TEMPLATES[id], pending)));
+  }
+
   for (const cat of CATEGORY_ORDER) {
+    if (cat === "공통") continue; // 위에서 기본 도구 그룹에 병합됨
     const ids = Object.keys(TEMPLATES).filter((id) => TEMPLATES[id].category === cat);
     if (!ids.length) continue;
 
@@ -297,19 +323,7 @@ function renderPanel() {
     body.className = "tool-section-body";   // 3-col icon grid (same as 공통 도구)
 
     for (const id of ids) {
-      const def = TEMPLATES[id];
-      const btn = document.createElement("button");
-      btn.className = "tool-btn";             // square icon button (reuses active styling)
-      btn.type = "button";
-      btn.dataset.symbol = id;               // UNIQUE per-object id — drives the single-highlight fix
-      btn.title = def.label;                 // name on hover ONLY (tooltip), never inside the button
-
-      const kbd = document.createElement("kbd");
-      const icon = buildSymbolIcon(id, def);
-      kbd.appendChild(icon);
-      btn.appendChild(kbd);
-      body.appendChild(btn);
-      pending.push(icon);
+      body.appendChild(makeSymbolButton(id, TEMPLATES[id], pending));
     }
 
     section.appendChild(header);

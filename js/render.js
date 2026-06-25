@@ -7,8 +7,8 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.15.0";
-import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.15.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.16.0";
+import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.16.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -814,24 +814,54 @@ function renderLine(obj) {
     // "center" and "none": no adjustment
   }
 
-  const el = document.createElementNS(SVG_NS, "line");
-  el.setAttribute("x1", lx1);
-  el.setAttribute("y1", ly1);
-  el.setAttribute("x2", lx2);
-  el.setAttribute("y2", ly2);
-  // strokeLevel 0 = black (DESIGN 2-2). stroke-width is in world units.
-  el.setAttribute("stroke", color);
-  el.setAttribute("stroke-width", sw);
-  applyDash(el, obj);
+  // One <line> segment; strokeLevel 0 = black (DESIGN 2-2), stroke-width in world units.
+  const mkSeg = (x1, y1, x2, y2, dashed) => {
+    const seg = document.createElementNS(SVG_NS, "line");
+    seg.setAttribute("x1", x1);
+    seg.setAttribute("y1", y1);
+    seg.setAttribute("x2", x2);
+    seg.setAttribute("y2", y2);
+    seg.setAttribute("stroke", color);
+    seg.setAttribute("stroke-width", sw);
+    if (dashed) applyDash(seg, obj);
+    return seg;
+  };
+
+  // "부분 점선": solid for dashRatio of the drawn span (from p1, or p2 when dashFlip),
+  // dashed for the rest. Only straight lines; needs a dash length to show the dashes.
+  const usePartial = obj.partialDash === true && L > 0 && (obj.dashLength ?? 0) > 0;
+  let bodyEls;
+  if (usePartial) {
+    const segLen = Math.hypot(lx2 - lx1, ly2 - ly1);
+    const ux = segLen ? (lx2 - lx1) / segLen : 0;
+    const uy = segLen ? (ly2 - ly1) / segLen : 0;
+    const ratio = Math.max(0, Math.min(1, obj.dashRatio ?? 0.5));
+    const solidLen = ratio * segLen;
+    if (!obj.dashFlip) {
+      const sx = lx1 + ux * solidLen, sy = ly1 + uy * solidLen;
+      bodyEls = [mkSeg(lx1, ly1, sx, sy, false), mkSeg(sx, sy, lx2, ly2, true)];
+    } else {
+      const sx = lx2 - ux * solidLen, sy = ly2 - uy * solidLen;
+      bodyEls = [mkSeg(sx, sy, lx2, ly2, false), mkSeg(lx1, ly1, sx, sy, true)];
+    }
+  } else {
+    bodyEls = [mkSeg(lx1, ly1, lx2, ly2, true)];
+  }
 
   if (lineStyle === "solid" || L === 0) {
-    if (obj.id) el.dataset.id = obj.id;
-    return el;
+    if (bodyEls.length === 1) {
+      if (obj.id) bodyEls[0].dataset.id = obj.id;
+      return bodyEls[0];
+    }
+    const gSolid = document.createElementNS(SVG_NS, "g");
+    if (obj.id) gSolid.dataset.id = obj.id;
+    bodyEls.forEach((b) => gSolid.appendChild(b));
+    return gSolid;
   }
 
   const g = document.createElementNS(SVG_NS, "g");
   if (obj.id) g.dataset.id = obj.id;
-  g.appendChild(el);
+  bodyEls.forEach((b) => g.appendChild(b));
 
   if (arrowHead === "end") {
     g.appendChild(makeArrowHead(obj.p2.x, obj.p2.y, nx, ny, sw, color));

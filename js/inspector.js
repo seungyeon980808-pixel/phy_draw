@@ -1,7 +1,7 @@
 ﻿/* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.15.0";
-import { openFontModalForSelection } from "./tools.js?v=0.15.0";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.16.0";
+import { openFontModalForSelection } from "./tools.js?v=0.16.0";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -204,7 +204,7 @@ export function initInspector(state) {
 
   /* ---- Section 1: 선 ---- */
   const sec1Body = document.createElement("div");
-  sec1Body.className = "insp-body";
+  sec1Body.className = "insp-body insp-line-grid"; // fixed-width label column (Illustrator-style)
 
   let _strokeSnap = null;
   const strokeCP = makeColorPicker(
@@ -306,7 +306,7 @@ export function initInspector(state) {
   lineModeRow.className = "insp-row";
   const lineModeLbl = document.createElement("label");
   lineModeLbl.className = "insp-field-label";
-  lineModeLbl.textContent = "Line mode";
+  lineModeLbl.textContent = "화살표 종류";
   const lineModeBtns = document.createElement("div");
   lineModeBtns.style.cssText = "display:flex;gap:4px;flex-wrap:wrap;";
   const LINE_MODES = [
@@ -422,6 +422,7 @@ export function initInspector(state) {
         if (o && DASH_TYPES.includes(o.type)) {
           o.dashLength = preset.dashLength;
           o.dashGap = preset.dashGap;
+          o.partialDash = false; // selecting a normal dash preset exits 부분 점선 mode
           s2.undoStack.push(snap);
           s2.redoStack = [];
         }
@@ -430,6 +431,34 @@ export function initInspector(state) {
     _dashBtnEls.push(btn);
     dashBtns.appendChild(btn);
   });
+
+  // "부분 점선" (partial dash): half solid + half dashed. Straight line only — sets
+  // obj.partialDash and seeds dashRatio/dashFlip; the dashed half reuses 길이/간격.
+  const partialDashBtn = document.createElement("button");
+  partialDashBtn.title = "부분 점선";
+  partialDashBtn.innerHTML = '<svg width="40" height="24" viewBox="0 0 40 24">' +
+    '<line x1="2" y1="12" x2="20" y2="12" stroke="#888" stroke-width="2"/>' +
+    '<line x1="20" y1="12" x2="38" y2="12" stroke="#888" stroke-width="2" stroke-dasharray="3 3"/></svg>';
+  partialDashBtn.style.cssText = "width:40px;height:24px;padding:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid #3a3c41;border-radius:3px;background:#1e1f22;color:#dcddde;";
+  partialDashBtn.addEventListener("click", () => {
+    const s = state.get();
+    const ids = s.selectedIds || [];
+    if (ids.length !== 1) return;
+    const snap = JSON.parse(JSON.stringify(s.objects));
+    state.update((s2) => {
+      const o = s2.objects.find((o) => o.id === ids[0]);
+      if (o && o.type === "line") {
+        o.partialDash = true;
+        if ((o.dashLength ?? 0) <= 0) { o.dashLength = 0.2; o.dashGap = 0.2; } // ensure dashes show
+        o.dashRatio ??= 0.5;
+        o.dashFlip ??= false;
+        s2.undoStack.push(snap);
+        s2.redoStack = [];
+      }
+    });
+  });
+  dashBtns.appendChild(partialDashBtn);
+
   dashRow.appendChild(dashLbl);
   dashRow.appendChild(dashBtns);
   sec1Body.appendChild(dashRow);
@@ -502,6 +531,92 @@ export function initInspector(state) {
   dashSliders.appendChild(dashGapSlider.el);
   sec1Body.appendChild(dashSliders);
 
+  // ---- 부분 점선 전용 컨트롤: 실선 비율(0..1) + 방향 반전. 직선 한 개가 선택되고
+  // partialDash가 켜졌을 때만 노출(axisVariant 전용 섹션 패턴과 동일). ----
+  const partialControls = document.createElement("div");
+  partialControls.style.cssText = "display:flex;flex-direction:column;gap:5px;";
+
+  // 실선 비율 slider (dashRatio: 시작점 p1 기준 실선 비율)
+  const ratioRow = document.createElement("div");
+  ratioRow.className = "insp-row";
+  const ratioLbl = document.createElement("label");
+  ratioLbl.className = "insp-field-label";
+  ratioLbl.textContent = "실선 비율";
+  const ratioRange = document.createElement("input");
+  ratioRange.type = "range";
+  ratioRange.min = "0";
+  ratioRange.max = "1";
+  ratioRange.step = "0.05";
+  ratioRange.className = "insp-range";
+  const ratioNum = document.createElement("input");
+  ratioNum.type = "number";
+  ratioNum.min = "0";
+  ratioNum.max = "1";
+  ratioNum.step = "0.05";
+  ratioNum.style.cssText = "width:40px;font-size:11px;border:1px solid #3a3c41;border-radius:3px;padding:2px 4px;text-align:center;background:#1e1f22;color:#dcddde;";
+  ratioRow.appendChild(ratioLbl);
+  ratioRow.appendChild(ratioRange);
+  ratioRow.appendChild(ratioNum);
+
+  function applyRatio(val) {
+    const s = state.get();
+    const ids = s.selectedIds || [];
+    if (ids.length !== 1) return;
+    state.update((s2) => {
+      const o = s2.objects.find((o) => o.id === ids[0]);
+      if (o && o.type === "line") o.dashRatio = val;
+    });
+  }
+  let _ratioSnap = null;
+  ratioRange.addEventListener("mousedown", () => { _ratioSnap = snapBefore(); });
+  ratioRange.addEventListener("input", () => {
+    const val = Math.max(0, Math.min(1, parseFloat(ratioRange.value)));
+    ratioNum.value = val.toFixed(2);
+    applyRatio(val);
+  });
+  ratioRange.addEventListener("change", () => { pushSnap(_ratioSnap); _ratioSnap = null; });
+  let _ratioNumSnap = null;
+  ratioNum.addEventListener("focus", () => { _ratioNumSnap = snapBefore(); });
+  ratioNum.addEventListener("input", () => {
+    const raw = parseFloat(ratioNum.value);
+    if (!isFinite(raw)) return;
+    const val = Math.max(0, Math.min(1, raw));
+    ratioRange.value = val;
+    applyRatio(val);
+  });
+  ratioNum.addEventListener("change", () => { pushSnap(_ratioNumSnap); _ratioNumSnap = null; });
+  partialControls.appendChild(ratioRow);
+
+  // 방향 반전 button (dashFlip toggle): 실선/점선 절반을 좌우 교환.
+  const flipRow = document.createElement("div");
+  flipRow.className = "insp-row";
+  const flipLbl = document.createElement("label");
+  flipLbl.className = "insp-field-label";
+  flipLbl.textContent = ""; // 라벨 컬럼 정렬 유지용 빈 칸
+  const flipBtn = document.createElement("button");
+  flipBtn.type = "button";
+  flipBtn.textContent = "방향 반전";
+  flipBtn.style.cssText = "padding:4px 10px;font-size:11px;cursor:pointer;border:1px solid #3a3c41;border-radius:3px;background:#1e1f22;color:#dcddde;";
+  flipBtn.addEventListener("click", () => {
+    const s = state.get();
+    const ids = s.selectedIds || [];
+    if (ids.length !== 1) return;
+    const snap = JSON.parse(JSON.stringify(s.objects));
+    state.update((s2) => {
+      const o = s2.objects.find((o) => o.id === ids[0]);
+      if (o && o.type === "line") {
+        o.dashFlip = !o.dashFlip;
+        s2.undoStack.push(snap);
+        s2.redoStack = [];
+      }
+    });
+  });
+  flipRow.appendChild(flipLbl);
+  flipRow.appendChild(flipBtn);
+  partialControls.appendChild(flipRow);
+
+  sec1Body.appendChild(partialControls);
+
   // ---- 닫기 toggle (single polyline only): off = open <polyline>, on = filled <polygon>.
   // Turning it on flips obj.closed; populate() then reveals the 채우기 section.
   const closeRow = document.createElement("div");
@@ -536,18 +651,36 @@ export function initInspector(state) {
   function syncDashControls(obj) {
     const dl = obj.dashLength ?? 0;
     const dg = obj.dashGap ?? 0;
+    const isPartial = obj.type === "line" && !!obj.partialDash;
     _dashBtnEls.forEach((btn, i) => {
       const p = DASH_PRESETS[i];
-      const active = p.dashLength === dl && p.dashGap === dg;
+      // In partial mode no plain preset is the active "선 종류" (the partial button is).
+      const active = !isPartial && p.dashLength === dl && p.dashGap === dg;
       btn.style.background = active ? "#4a9eff" : "#1e1f22";
       btn.style.color      = active ? "#ffffff" : "#dcddde";
       btn.style.border     = active ? "1px solid #4a9eff" : "1px solid #3a3c41";
     });
+    // 부분 점선 button: shown for straight lines only; highlighted when active.
+    partialDashBtn.style.display = obj.type === "line" ? "" : "none";
+    partialDashBtn.style.background = isPartial ? "#4a9eff" : "#1e1f22";
+    partialDashBtn.style.color      = isPartial ? "#ffffff" : "#dcddde";
+    partialDashBtn.style.border     = isPartial ? "1px solid #4a9eff" : "1px solid #3a3c41";
+
     const dashed = dl > 0;
     dashSliders.style.display = dashed ? "" : "none";
     if (dashed) {
       dashLenSlider.range.value = dl; dashLenSlider.num.value = dl.toFixed(1);
       dashGapSlider.range.value = dg; dashGapSlider.num.value = dg.toFixed(1);
+    }
+
+    // 실선 비율 / 방향 반전: only for a single straight line in partial mode.
+    partialControls.style.display = isPartial ? "" : "none";
+    if (isPartial) {
+      const r = Math.max(0, Math.min(1, obj.dashRatio ?? 0.5));
+      if (document.activeElement !== ratioNum) {
+        ratioRange.value = r;
+        ratioNum.value = r.toFixed(2);
+      }
     }
   }
 
@@ -1535,6 +1668,7 @@ export function initInspector(state) {
       arrowRow.style.display = "none";
       dashRow.style.display = "none";
       dashSliders.style.display = "none";
+      partialControls.style.display = "none";
       closeRow.style.display = "none";
       angleRow.style.display = "none";
       return;
@@ -1563,6 +1697,7 @@ export function initInspector(state) {
       arrowRow.style.display = "none";
       dashRow.style.display = "none";
       dashSliders.style.display = "none";
+      partialControls.style.display = "none";
       closeRow.style.display = "none";
       angleRow.style.display = "none";
       // A group always uses the box rows (W/H + rotation); never the arc rows,
@@ -1656,6 +1791,7 @@ export function initInspector(state) {
       arrowRow.style.display = "none";
       dashRow.style.display = "none";
       dashSliders.style.display = "none";
+      partialControls.style.display = "none";
       closeRow.style.display = "none";
       angleRow.style.display = "none";
 
@@ -1757,6 +1893,7 @@ export function initInspector(state) {
       syncDashControls(obj);
     } else {
       dashSliders.style.display = "none";
+      partialControls.style.display = "none";
     }
 
     // Section 1

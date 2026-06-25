@@ -123,6 +123,14 @@ details[open] > .insp-summary::before {
   text-align: right;
 }
 
+/* 선 섹션: 라벨 컬럼을 가장 긴 라벨("화살표 종류") 기준 고정폭으로 통일해
+   모든 컨트롤이 같은 x에서 시작하도록 정렬한다 (Illustrator Stroke 패널 방식). */
+.insp-line-grid .insp-field-label {
+  width: 58px;
+  min-width: 58px;
+  text-align: left;
+}
+
 /* 크기·위치 number fields: fixed 64px, sit tight next to the label (left-aligned) */
 .insp-input {
   flex: 0 0 auto;
