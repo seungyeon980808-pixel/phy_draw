@@ -1,4 +1,4 @@
-/* ===== SETTINGS (설정 dropdown + 기본값 설정 modal) ===== */
+﻿/* ===== SETTINGS (설정 dropdown + 기본값 설정 modal) ===== */
 //
 // Step 1 of the defaults feature. Owns the "설정 ▾" top-bar dropdown and the
 // "기본값 설정" modal, mirroring export-dialog.js (initFileMenu + buildModal):
@@ -17,7 +17,7 @@ import {
   TEXT_STYLES,
   DEFAULT_TEXT_FONT,
   DEFAULT_TEXT_SIZE_MM,
-} from "./state.js?v=1.2.0";
+} from "./state.js?v=0.14.0";
 
 /* ----- defaults schema + localStorage load/save ----- */
 const DEFAULTS_KEY = "phyDraw.defaults";

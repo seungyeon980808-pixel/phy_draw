@@ -1,4 +1,4 @@
-/* ===== RENDER (DESIGN 1-1: SVG is a projection of state.objects) ===== */
+﻿/* ===== RENDER (DESIGN 1-1: SVG is a projection of state.objects) ===== */
 //
 // render(state) repaints the <g id="scene"> from data. It is registered as a
 // store subscriber in main.js, so ANY state.update() repaints automatically ??// no caller ever invokes render() by hand. That is the data-as-truth proof.
@@ -7,8 +7,8 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=1.2.0";
-import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=1.2.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.14.0";
+import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.14.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -1127,28 +1127,43 @@ function renderAxes(obj) {
     g.appendChild(l);
   };
 
+  // ----- axis variant: which arms exist + which sides get ticks -----
+  // cross    → H+V through origin, all four arms; arrows on +X & +Y.
+  // quadrant → origin → right and origin → up only (L-shape); arrows on +X & +Y.
+  // single   → one horizontal line; arrow on +X only (labelY/Y-arm ignored).
+  const variant = obj.axisVariant || "cross";
+  const hasYArm   = variant !== "single";          // vertical arm present?
+  const negXArm   = variant === "cross";           // arm to the left of origin?
+  const negYArm   = variant === "cross";           // arm below origin?
+  const bothSides = variant === "cross";           // ticks on the − side too?
+
+  // ----- arrowheads scaled 1.5× for the axis only (shared makeArrowHead untouched) -----
+  const headSw = sw * 1.5;       // inflated stroke-width → head grows 1.5×
+  const head = headSw * 4.5;     // arrowhead length at this scale (matches makeArrowHead)
+
   // ----- axis lines (shortened slightly so the arrowheads cap the ends) -----
-  const head = sw * 4.5; // arrowhead length (matches makeArrowHead)
-  addLine(left, cy, right - head * 0.6, cy);   // X axis (origin → +X)
-  addLine(cx, bottom, cx, top + head * 0.6);   // Y axis (origin → +Y, i.e. up)
+  addLine(negXArm ? left : cx, cy, right - head * 0.6, cy);              // X axis (→ +X)
+  if (hasYArm) addLine(cx, negYArm ? bottom : cy, cx, top + head * 0.6); // Y axis (→ +Y, up)
 
   // ----- arrowheads at the +X (right) and +Y (top) ends -----
-  g.appendChild(makeArrowHead(right, cy, 1, 0, sw, color));   // +X → pointing right
-  g.appendChild(makeArrowHead(cx, top, 0, -1, sw, color));    // +Y → pointing up
+  g.appendChild(makeArrowHead(right, cy, 1, 0, headSw, color));            // +X → pointing right
+  if (hasYArm) g.appendChild(makeArrowHead(cx, top, 0, -1, headSw, color)); // +Y → pointing up
 
-  // ----- tick marks: stepped out from the origin both directions on each axis -----
+  // ----- tick marks: stepped out from the origin; − side only when bothSides -----
   if (obj.showTicks) {
     const step = Math.max(obj.tickSpacing || 5, 0.5);
     const tHalf = sw * 4; // tick half-length (perpendicular to its axis)
     // X-axis ticks (skip the origin); stop short of the arrowhead.
     for (let d = step; d <= obj.w / 2 - head * 0.6; d += step) {
       addLine(cx + d, cy - tHalf, cx + d, cy + tHalf);
-      addLine(cx - d, cy - tHalf, cx - d, cy + tHalf);
+      if (bothSides) addLine(cx - d, cy - tHalf, cx - d, cy + tHalf);
     }
     // Y-axis ticks (skip the origin); stop short of the arrowhead.
-    for (let d = step; d <= obj.h / 2 - head * 0.6; d += step) {
-      addLine(cx - tHalf, cy + d, cx + tHalf, cy + d);
-      addLine(cx - tHalf, cy - d, cx + tHalf, cy - d);
+    if (hasYArm) {
+      for (let d = step; d <= obj.h / 2 - head * 0.6; d += step) {
+        addLine(cx - tHalf, cy - d, cx + tHalf, cy - d);                   // +Y (up) side
+        if (bothSides) addLine(cx - tHalf, cy + d, cx + tHalf, cy + d);    // −Y (down) side
+      }
     }
   }
 
@@ -1169,7 +1184,7 @@ function renderAxes(obj) {
     g.appendChild(t);
   };
   addLabel(obj.labelX, right, cy + labelSize * 0.9, "end", "hanging");  // below +X tip
-  addLabel(obj.labelY, cx + labelSize * 0.5, top, "start", "hanging");  // right of +Y tip
+  if (hasYArm) addLabel(obj.labelY, cx + labelSize * 0.5, top, "start", "hanging"); // right of +Y tip
 
   // ----- rotation: whole symbol turns about its origin (bbox center) -----
   const rot = obj.rotation ?? 0;

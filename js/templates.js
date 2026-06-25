@@ -1,4 +1,4 @@
-/* ===== TEMPLATES (the SINGLE object registry — DESIGN 1-1) ===== */
+﻿/* ===== TEMPLATES (the SINGLE object registry — DESIGN 1-1) ===== */
 //
 // One registry is the source of truth for EVERY library object. The left panel is
 // rendered FROM this registry (no hardcoded buttons in index.html), and each entry
@@ -21,9 +21,9 @@
 //               geometry on canvas drag/click via makeShape()/makeCircuit()/the ARC
 //               tool. The registry only names which tool + variant to arm.
 
-import { state } from "./state.js?v=1.2.0";
-import { armSymbol } from "./tools.js?v=1.2.0";
-import { renderObject } from "./render.js?v=1.2.0";
+import { state } from "./state.js?v=0.14.0";
+import { armSymbol } from "./tools.js?v=0.14.0";
+import { renderObject } from "./render.js?v=0.14.0";
 
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm) — matches tools.js shapes
 
@@ -56,6 +56,7 @@ export const TEMPLATES = {
         strokeWidth: DEFAULT_STROKE_WIDTH,
         showTicks: true,
         tickSpacing: 5,                 // world units (mm) between ticks
+        axisVariant: "cross",           // "cross" | "quadrant" | "single" (form)
         labelX: "x",
         labelY: "y",
         locked: false,

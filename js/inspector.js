@@ -1,7 +1,7 @@
-/* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
+﻿/* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=1.2.0";
-import { openFontModalForSelection } from "./tools.js?v=1.2.0";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.14.0";
+import { openFontModalForSelection } from "./tools.js?v=0.14.0";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -1067,6 +1067,106 @@ export function initInspector(state) {
   gapRow.appendChild(gapInp);
   sec3Body.appendChild(gapRow);
 
+  // axes-only: 형태(축 모양) 3종 전환 + X/Y 라벨 + 눈금 간격. Shown only when a single
+  // 좌표축 is selected. Reuses existing fields (axisVariant/labelX/labelY/tickSpacing);
+  // each control commits on click or Enter/blur with one undo snapshot, like the rows above.
+  const AXIS_VARIANTS = [
+    { id: "cross",    label: "십자" },
+    { id: "quadrant", label: "L자" },
+    { id: "single",   label: "직선" },
+  ];
+  // Mutate the single selected axes object under one undo snapshot. `apply` returns
+  // false when nothing changed → no undo entry is pushed (mirrors commitGap/commitArcLabel).
+  function commitAxes(apply) {
+    const s = state.get();
+    if (!(s.selectedIds || []).length) return;
+    const snap = JSON.parse(JSON.stringify(s.objects));
+    state.update((s2) => {
+      const o = s2.objects.find((o) => o.id === (s2.selectedIds || [])[0]);
+      if (!o || o.locked || o.type !== "axes") return;
+      if (!apply(o)) return;
+      s2.undoStack.push(snap); s2.redoStack = [];
+    });
+  }
+
+  const axisVarRow = document.createElement("div");
+  axisVarRow.className = "insp-row";
+  const axisVarLbl = document.createElement("label");
+  axisVarLbl.className = "insp-field-label";
+  axisVarLbl.textContent = "형태";
+  axisVarRow.appendChild(axisVarLbl);
+  const axisVarBtns = {};
+  AXIS_VARIANTS.forEach(({ id, label }) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = label;
+    btn.style.cssText =
+      "flex:1;padding:4px 0;margin-left:4px;border:1px solid #3a3c41;border-radius:4px;" +
+      "background:#1e1f22;color:#ddd;cursor:pointer;font-size:12px;";
+    btn.addEventListener("click", () =>
+      commitAxes((o) => {
+        if ((o.axisVariant || "cross") === id) return false;
+        o.axisVariant = id;
+        return true;
+      })
+    );
+    axisVarBtns[id] = btn;
+    axisVarRow.appendChild(btn);
+  });
+  sec3Body.appendChild(axisVarRow);
+
+  function makeAxisLabelRow(labelText, field) {
+    const row = document.createElement("div");
+    row.className = "insp-row";
+    const lbl = document.createElement("label");
+    lbl.className = "insp-field-label";
+    lbl.textContent = labelText;
+    const inp = document.createElement("input");
+    inp.type = "text";
+    inp.className = "insp-input";
+    function commit() {
+      commitAxes((o) => {
+        if ((o[field] ?? "") === inp.value) return false;
+        o[field] = inp.value;
+        return true;
+      });
+    }
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") inp.blur(); });
+    inp.addEventListener("blur", commit);
+    row.appendChild(lbl);
+    row.appendChild(inp);
+    sec3Body.appendChild(row);
+    return { row, inp };
+  }
+  const axisLabelXRow = makeAxisLabelRow("X 라벨", "labelX");
+  const axisLabelYRow = makeAxisLabelRow("Y 라벨", "labelY");
+
+  const tickRow = document.createElement("div");
+  tickRow.className = "insp-row";
+  const tickLbl = document.createElement("label");
+  tickLbl.className = "insp-field-label";
+  tickLbl.textContent = "눈금 간격";
+  const tickInp = document.createElement("input");
+  tickInp.type = "number";
+  tickInp.step = "0.5";
+  tickInp.min = "0.5";
+  tickInp.className = "insp-input";
+  function commitTick() {
+    const val = parseFloat(tickInp.value);
+    if (!isFinite(val)) return;
+    const clamped = Math.max(val, 0.5); // sane minimum (matches render clamp)
+    commitAxes((o) => {
+      if (o.tickSpacing === clamped) return false;
+      o.tickSpacing = clamped;
+      return true;
+    });
+  }
+  tickInp.addEventListener("keydown", (e) => { if (e.key === "Enter") tickInp.blur(); });
+  tickInp.addEventListener("blur", commitTick);
+  tickRow.appendChild(tickLbl);
+  tickRow.appendChild(tickInp);
+  sec3Body.appendChild(tickRow);
+
   // diode-only: two terminal labels (단자1 / 단자2) replacing the single 라벨 row.
   function makeTermRow(labelText, idx) {
     const row = document.createElement("div");
@@ -1432,6 +1532,10 @@ export function initInspector(state) {
       gapRow.style.display = "none";
       term1.el.style.display = "none";
       term2.el.style.display = "none";
+      axisVarRow.style.display = "none";
+      axisLabelXRow.row.style.display = "none";
+      axisLabelYRow.row.style.display = "none";
+      tickRow.style.display = "none";
 
       const groupHasLocked = ids.some((id) => s.objects.find((o) => o.id === id)?.locked);
       const groupHasPositionLocked = ids.some((id) => s.objects.find((o) => o.id === id)?.positionLocked);
@@ -1635,6 +1739,8 @@ export function initInspector(state) {
     const circElem = isCircuit ? obj.element : null;
     const isCap = circElem === "capacitor";
     const isDiode = circElem === "diode";
+    const isAxes = obj.type === "axes";
+    const axisVariant = isAxes ? (obj.axisVariant || "cross") : null;
     sec3.style.display = (isShape || isArc || isCircuit) ? "" : "none";
     // Toggle which rows belong to this selection: arc swaps W/H + rotation for
     // radius + start/sweep angle; circuit (two terminals) hides the box rows.
@@ -1649,6 +1755,11 @@ export function initInspector(state) {
     gapRow.style.display = isCap ? "" : "none";
     term1.el.style.display = isDiode ? "" : "none";
     term2.el.style.display = isDiode ? "" : "none";
+    // axes-only rows. single variant ignores labelY → hide that one row.
+    axisVarRow.style.display = isAxes ? "" : "none";
+    axisLabelXRow.row.style.display = isAxes ? "" : "none";
+    axisLabelYRow.row.style.display = (isAxes && axisVariant !== "single") ? "" : "none";
+    tickRow.style.display = isAxes ? "" : "none";
     if (isShape) {
       xF.inp.value   = (obj.x        ?? 0).toFixed(2);
       yF.inp.value   = (-(obj.y      ?? 0)).toFixed(2); // SVG Y down → math Y up
@@ -1676,6 +1787,16 @@ export function initInspector(state) {
       if (document.activeElement !== term1.inp) term1.inp.value = tl[0] ?? "";
       if (document.activeElement !== term2.inp) term2.inp.value = tl[1] ?? "";
     }
+    if (isAxes) {
+      Object.entries(axisVarBtns).forEach(([id, btn]) => {
+        const active = id === axisVariant;
+        btn.style.background = active ? "#4a9eff" : "#1e1f22";
+        btn.style.borderColor = active ? "#4a9eff" : "#3a3c41";
+      });
+      if (document.activeElement !== axisLabelXRow.inp) axisLabelXRow.inp.value = obj.labelX ?? "";
+      if (document.activeElement !== axisLabelYRow.inp) axisLabelYRow.inp.value = obj.labelY ?? "";
+      if (document.activeElement !== tickInp) tickInp.value = (obj.tickSpacing ?? 5).toString();
+    }
 
     // Section 4
     sec4.style.display = "";
@@ -1695,6 +1816,10 @@ export function initInspector(state) {
     gapInp.disabled = !!obj.locked;
     term1.inp.disabled = !!obj.locked;
     term2.inp.disabled = !!obj.locked;
+    axisLabelXRow.inp.disabled = !!obj.locked;
+    axisLabelYRow.inp.disabled = !!obj.locked;
+    tickInp.disabled = !!obj.locked;
+    Object.values(axisVarBtns).forEach((btn) => { btn.disabled = !!obj.locked; });
   }
 
   state.subscribe(populate);
