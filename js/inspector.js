@@ -1,12 +1,12 @@
 ﻿/* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.16.2";
-import { openFontModalForSelection } from "./tools.js?v=0.16.2";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.16.3";
+import { openFontModalForSelection } from "./tools.js?v=0.16.3";
 import {
   getObjectStyleMode,
   prepareObjectStyleModeSwitch,
   resolveObjectStyle,
-} from "./style-mode.js?v=0.16.2";
+} from "./style-mode.js?v=0.16.3";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -268,7 +268,8 @@ export function initInspector(state) {
   }
 
   function styleLockedForSelection(objects) {
-    return objects.length > 0 && objects.some((o) => getObjectStyleMode(o) === "exam");
+    const editable = objects.filter((o) => o && !o.locked);
+    return editable.length > 0 && editable.some((o) => getObjectStyleMode(o) === "exam");
   }
 
   function setButtonDisabled(btn, disabled) {
