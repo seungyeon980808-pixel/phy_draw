@@ -1,7 +1,7 @@
 ﻿/* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.14.0";
-import { openFontModalForSelection } from "./tools.js?v=0.14.0";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.15.0";
+import { openFontModalForSelection } from "./tools.js?v=0.15.0";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -1167,6 +1167,51 @@ export function initInspector(state) {
   tickRow.appendChild(tickInp);
   sec3Body.appendChild(tickRow);
 
+  // lens-only: 중앙 세로 점선 옵션 (none/top/bottom/full). Shown only when a single
+  // convex_lens or concave_lens is selected (mirrors the axes-only block above).
+  const CENTERLINE_OPTS = [
+    { id: "none",   label: "없음" },
+    { id: "top",    label: "위쪽" },
+    { id: "bottom", label: "아래쪽" },
+    { id: "full",   label: "전체" },
+  ];
+  // Mutate the single selected lens object under one undo snapshot, like commitAxes.
+  function commitLens(apply) {
+    const s = state.get();
+    if (!(s.selectedIds || []).length) return;
+    const snap = JSON.parse(JSON.stringify(s.objects));
+    state.update((s2) => {
+      const o = s2.objects.find((o) => o.id === (s2.selectedIds || [])[0]);
+      if (!o || o.locked || o.type !== "optics") return;
+      if (o.kind !== "convex_lens" && o.kind !== "concave_lens") return;
+      if (!apply(o)) return;
+      s2.undoStack.push(snap); s2.redoStack = [];
+    });
+  }
+
+  const centerLineRow = document.createElement("div");
+  centerLineRow.className = "insp-row";
+  const centerLineLbl = document.createElement("label");
+  centerLineLbl.className = "insp-field-label";
+  centerLineLbl.textContent = "중앙 점선";
+  const centerLineSel = document.createElement("select");
+  centerLineSel.className = "insp-input";
+  CENTERLINE_OPTS.forEach(({ id, label }) => {
+    const opt = document.createElement("option");
+    opt.value = id; opt.textContent = label;
+    centerLineSel.appendChild(opt);
+  });
+  centerLineSel.addEventListener("change", () => {
+    commitLens((o) => {
+      if ((o.centerLine || "none") === centerLineSel.value) return false;
+      o.centerLine = centerLineSel.value;
+      return true;
+    });
+  });
+  centerLineRow.appendChild(centerLineLbl);
+  centerLineRow.appendChild(centerLineSel);
+  sec3Body.appendChild(centerLineRow);
+
   // diode-only: two terminal labels (단자1 / 단자2) replacing the single 라벨 row.
   function makeTermRow(labelText, idx) {
     const row = document.createElement("div");
@@ -1760,6 +1805,9 @@ export function initInspector(state) {
     axisLabelXRow.row.style.display = isAxes ? "" : "none";
     axisLabelYRow.row.style.display = (isAxes && axisVariant !== "single") ? "" : "none";
     tickRow.style.display = isAxes ? "" : "none";
+    // lens-only center dashed-line row.
+    const isLens = isOptics && (obj.kind === "convex_lens" || obj.kind === "concave_lens");
+    centerLineRow.style.display = isLens ? "" : "none";
     if (isShape) {
       xF.inp.value   = (obj.x        ?? 0).toFixed(2);
       yF.inp.value   = (-(obj.y      ?? 0)).toFixed(2); // SVG Y down → math Y up
@@ -1779,6 +1827,7 @@ export function initInspector(state) {
       labelInp.value  = obj.label ?? "";
     }
     if (isOptics) showLabelCb.checked = !!obj.showLabel;
+    if (isLens) centerLineSel.value = obj.centerLine || "none";
     if (isCap && document.activeElement !== gapInp) {
       gapInp.value = (obj.gap ?? 2).toFixed(1);
     }
@@ -1819,6 +1868,7 @@ export function initInspector(state) {
     axisLabelXRow.inp.disabled = !!obj.locked;
     axisLabelYRow.inp.disabled = !!obj.locked;
     tickInp.disabled = !!obj.locked;
+    centerLineSel.disabled = !!obj.locked;
     Object.values(axisVarBtns).forEach((btn) => { btn.disabled = !!obj.locked; });
   }
 

@@ -7,8 +7,8 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.14.0";
-import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.14.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.15.0";
+import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.15.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -1586,6 +1586,30 @@ function hatchVLine(g, X, top, bottom, sign, sw, color) {
     oLine(g, X, y, X + sign * len, y - len, sw, color);
   }
 }
+// Thin vertical dashed line (lens optical-axis / center line). Follows the body
+// color/strokeLevel but is drawn thinner than the lens outline.
+function oDashV(g, x, y1, y2, sw, color) {
+  const l = document.createElementNS(SVG_NS, "line");
+  l.setAttribute("x1", x); l.setAttribute("y1", y1);
+  l.setAttribute("x2", x); l.setAttribute("y2", y2);
+  l.setAttribute("stroke", color);
+  l.setAttribute("stroke-width", Math.max(sw * 0.6, 0.1));
+  l.setAttribute("stroke-dasharray", "1.2 1");
+  l.setAttribute("fill", "none");
+  g.appendChild(l);
+}
+// Optional center dashed line through a lens. centerLine: "none"|"top"|"bottom"|"full".
+// "top" = upper half (lens top→center), "bottom" = lower half (center→bottom).
+function drawCenterLine(g, obj, sw, color) {
+  const mode = obj.centerLine || "none";
+  if (mode === "none") return;
+  const cx = obj.x + obj.w / 2;
+  const top = obj.y, bottom = obj.y + obj.h, cy = obj.y + obj.h / 2;
+  let y1 = top, y2 = bottom;
+  if (mode === "top") { y2 = cy; }
+  else if (mode === "bottom") { y1 = cy; }
+  oDashV(g, cx, y1, y2, sw, color);
+}
 // Mirror = vertical arc bowing `sign` in x + hatch ticks on the back (bulge) side.
 function drawMirror(g, obj, sw, color, sign) {
   const cx = obj.x + obj.w / 2, cy = obj.y + obj.h / 2;
@@ -1600,28 +1624,26 @@ function drawMirror(g, obj, sw, color, sign) {
 }
 
 const OPTICS_KINDS = {
-  // convex_lens: two outward-bowed arcs meeting top & bottom + outward ↕ arrowheads.
+  // convex_lens: two outward-bowed arcs meeting at sharp top & bottom vertices
+  // (eye shape). No arrowheads. Optional center dashed line via centerLine.
   convex_lens(g, obj, sw, color) {
     const cx = obj.x + obj.w / 2, cy = obj.y + obj.h / 2;
     const top = obj.y, bottom = obj.y + obj.h, bow = obj.w * 0.5;
     oQuad(g, cx, top, cx - bow, cy, cx, bottom, sw, color);   // left bulge
     oQuad(g, cx, top, cx + bow, cy, cx, bottom, sw, color);   // right bulge
-    const aSW = Math.max(sw * 2.5, 0.5);
-    g.appendChild(makeArrowHead(cx, top, 0, -1, aSW, color));      // ↑ out
-    g.appendChild(makeArrowHead(cx, bottom, 0, 1, aSW, color));    // ↓ out
+    drawCenterLine(g, obj, sw, color);
   },
-  // concave_lens: ")(" inward arcs with flat caps (thin middle) + inward ↕ arrowheads.
+  // concave_lens: ")(" inward arcs with flat caps (pinched middle / bowtie).
+  // No arrowheads. Optional center dashed line via centerLine.
   concave_lens(g, obj, sw, color) {
-    const cx = obj.x + obj.w / 2, cy = obj.y + obj.h / 2;
+    const cy = obj.y + obj.h / 2;
     const left = obj.x, right = obj.x + obj.w, top = obj.y, bottom = obj.y + obj.h;
     const bow = obj.w * 0.32;
     oLine(g, left, top, right, top, sw, color);                   // top cap
     oLine(g, left, bottom, right, bottom, sw, color);             // bottom cap
     oQuad(g, left, top, left + bow, cy, left, bottom, sw, color);    // ")" bulge right
     oQuad(g, right, top, right - bow, cy, right, bottom, sw, color); // "(" bulge left
-    const aSW = Math.max(sw * 2.5, 0.5);
-    g.appendChild(makeArrowHead(cx, top, 0, 1, aSW, color));       // ↓ in
-    g.appendChild(makeArrowHead(cx, bottom, 0, -1, aSW, color));   // ↑ in
+    drawCenterLine(g, obj, sw, color);
   },
   // convex_mirror: arc bowing right + hatch ticks on the back (right) side.
   convex_mirror(g, obj, sw, color) { drawMirror(g, obj, sw, color, 1); },
