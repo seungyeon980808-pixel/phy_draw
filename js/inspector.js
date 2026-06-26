@@ -1,15 +1,16 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.17.5";
-import { openFontModalForSelection } from "./tools.js?v=0.17.5";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.17.6";
+import { openFontModalForSelection } from "./tools.js?v=0.17.6";
 import {
   getObjectStyleMode,
   prepareObjectStyleModeSwitch,
   resolveObjectStyle,
-} from "./style-mode.js?v=0.17.5";
+} from "./style-mode.js?v=0.17.6";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
+const CIRCUIT_HEIGHT_ELEMENTS = new Set(["resistor", "inductor", "capacitor", "voltmeter", "ammeter"]);
 // Branch-B "line family": share arrow + dash controls; fill section is hidden for them.
 const LINE_TYPES = ["line", "polyline", "curve"];
 const DASH_TYPES = [...SHAPE_TYPES, ...LINE_TYPES];
@@ -1303,6 +1304,9 @@ export function initInspector(state) {
   gapRow.appendChild(gapInp);
   sec3Body.appendChild(gapRow);
 
+  const circuitHeightF = makePosRow("높이", "height", "0.1");
+  sec3Body.appendChild(circuitHeightF.el);
+
   // axes-only: 형태(축 모양) 3종 전환 + X/Y 라벨 + 눈금 간격. Shown only when a single
   // 좌표축 is selected. Reuses existing fields (axisVariant/labelX/labelY/tickSpacing);
   // each control commits on click or Enter/blur with one undo snapshot, like the rows above.
@@ -2062,6 +2066,7 @@ export function initInspector(state) {
     const circElem = isCircuit ? obj.element : null;
     const isCap = circElem === "capacitor";
     const isDiode = circElem === "diode";
+    const hasCircuitHeight = isCircuit && CIRCUIT_HEIGHT_ELEMENTS.has(circElem);
     const isAxes = obj.type === "axes";
     const axisVariant = isAxes ? (obj.axisVariant || "cross") : null;
     sec3.style.display = (isShape || isArc || isCircuit) ? "" : "none";
@@ -2076,6 +2081,7 @@ export function initInspector(state) {
     labelRow.style.display = (isArc || isOptics || (isCircuit && !isDiode)) ? "" : "none";
     showLabelRow.style.display = isOptics ? "" : "none";
     gapRow.style.display = isCap ? "" : "none";
+    circuitHeightF.el.style.display = hasCircuitHeight ? "" : "none";
     term1.el.style.display = isDiode ? "" : "none";
     term2.el.style.display = isDiode ? "" : "none";
     // axes-only rows. single variant ignores labelY → hide that one row.
@@ -2109,6 +2115,10 @@ export function initInspector(state) {
     if (isCap && document.activeElement !== gapInp) {
       gapInp.value = (obj.gap ?? 2).toFixed(1);
     }
+    if (hasCircuitHeight && document.activeElement !== circuitHeightF.inp) {
+      const defaultHeight = (circElem === "voltmeter" || circElem === "ammeter") ? 5.12 : 3.2;
+      circuitHeightF.inp.value = String(obj.height ?? defaultHeight);
+    }
     if (isDiode) {
       const tl = Array.isArray(obj.terminalLabels) ? obj.terminalLabels : ["", ""];
       if (document.activeElement !== term1.inp) term1.inp.value = tl[0] ?? "";
@@ -2141,6 +2151,7 @@ export function initInspector(state) {
     labelInp.disabled = !!obj.locked;
     showLabelCb.disabled = !!obj.locked;
     gapInp.disabled = !!obj.locked;
+    circuitHeightF.inp.disabled = !!obj.locked;
     term1.inp.disabled = !!obj.locked;
     term2.inp.disabled = !!obj.locked;
     axisLabelXRow.inp.disabled = !!obj.locked;

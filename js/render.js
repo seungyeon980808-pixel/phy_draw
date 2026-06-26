@@ -7,10 +7,10 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.17.5";
-import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.17.5";
-import { resolveObjectStyle } from "./style-mode.js?v=0.17.5";
-import { renderFormula } from "./formula.js?v=0.17.5";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.17.6";
+import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.17.6";
+import { resolveObjectStyle } from "./style-mode.js?v=0.17.6";
+import { renderFormula } from "./formula.js?v=0.17.6";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -1227,7 +1227,7 @@ function renderAxes(obj) {
     g.appendChild(t);
   };
   addLabel(obj.labelX, right, cy + labelSize * 0.9, "end", "hanging");  // below +X tip
-  if (hasYArm) addLabel(obj.labelY, cx + labelSize * 0.5, top, "start", "hanging"); // right of +Y tip
+  if (hasYArm) addLabel(obj.labelY, cx - labelSize * 0.5, top, "end", "hanging"); // left of +Y tip
 
   // ----- rotation: whole symbol turns about its origin (bbox center) -----
   const rot = obj.rotation ?? 0;
@@ -1317,7 +1317,18 @@ function renderAngleArc(obj) {
  * Geometry is single-source via circuitGeom(); renderCircuit draws the shared
  * skeleton (leads + label) and dispatches the BODY by `element` through
  * CIRCUIT_ELEMENTS, so Steps 2–3 add elements by adding cases only. */
-const CIRCUIT_BODY_HALF_H = CIRCUIT_BODY_MM * 0.2; // body box half-height (perp to axis)
+const CIRCUIT_BODY_HALF_H = CIRCUIT_BODY_MM * 0.2; // default body box half-height (perp to axis)
+const CIRCUIT_HEIGHT_ELEMENTS = new Set(["resistor", "inductor", "capacitor", "voltmeter", "ammeter"]);
+
+function circuitHalfHeight(obj) {
+  const defaultHeight = obj && (obj.element === "voltmeter" || obj.element === "ammeter")
+    ? CIRCUIT_CIRCLE_R * 2
+    : CIRCUIT_BODY_HALF_H * 2;
+  const h = obj && CIRCUIT_HEIGHT_ELEMENTS.has(obj.element) && Number.isFinite(obj.height)
+    ? obj.height
+    : defaultHeight;
+  return Math.max(0.5, h) / 2;
+}
 
 // Derive all projection geometry from the two stored terminals. `half` is the
 // body half-length along the axis (clamped so it never exceeds the span).
@@ -1329,9 +1340,10 @@ function circuitGeom(obj) {
   const px = -uy, py = ux;              // unit vector perpendicular to the axis
   const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
   const half = Math.min(CIRCUIT_BODY_MM, L) / 2;
+  const heightScale = circuitHalfHeight(obj) / CIRCUIT_BODY_HALF_H;
   const bodyStart = { x: mid.x - ux * half, y: mid.y - uy * half };
   const bodyEnd   = { x: mid.x + ux * half, y: mid.y + uy * half };
-  return { p1, p2, dx, dy, L, ux, uy, px, py, mid, half, bodyStart, bodyEnd };
+  return { p1, p2, dx, dy, L, ux, uy, px, py, mid, half, heightScale, bodyStart, bodyEnd };
 }
 
 // World-space 4-corner polygon of the element body box (for hit-testing). Shared
@@ -1339,7 +1351,7 @@ function circuitGeom(obj) {
 export function circuitBodyPolygon(obj) {
   const g = circuitGeom(obj);
   const { mid, ux, uy, px, py, half } = g;
-  const hh = CIRCUIT_BODY_HALF_H;
+  const hh = circuitHalfHeight(obj);
   return [
     { x: mid.x - ux * half - px * hh, y: mid.y - uy * half - py * hh },
     { x: mid.x + ux * half - px * hh, y: mid.y + uy * half - py * hh },
@@ -1377,8 +1389,8 @@ function cText(g, x, y, text, size, color, fontFamily = DEFAULT_TEXT_FONT) {
   g.appendChild(t);
 }
 // Circle body + short connectors from circle edge to the lead ends (ac/unknown/lamp/meters).
-function circuitCircleBody(g, geo, sw, color) {
-  const r = CIRCUIT_CIRCLE_R;
+function circuitCircleBody(g, geo, sw, color, obj) {
+  const r = obj ? Math.max(0.25, circuitHalfHeight(obj)) : CIRCUIT_CIRCLE_R;
   const c = document.createElementNS(SVG_NS, "circle");
   c.setAttribute("cx", geo.mid.x); c.setAttribute("cy", geo.mid.y);
   c.setAttribute("r", r);
@@ -1402,7 +1414,7 @@ const CIRCUIT_ELEMENTS = {
   // come out rotated with no transform needed. No fill.
   resistor(g, geo, sw, color) {
     const { mid, ux, uy, px, py, half } = geo;
-    const amp = half * 0.35;                              // peak amplitude, perp to axis
+    const amp = half * 0.35 * geo.heightScale;            // peak amplitude, perp to axis
     const ts   = [0, 1/12, 3/12, 5/12, 7/12, 9/12, 11/12, 1];
     const offs = [0,  amp, -amp,  amp, -amp,  amp, -amp,  0]; // alternating peaks
     const pts = ts.map((t, i) => {
@@ -1449,7 +1461,7 @@ const CIRCUIT_ELEMENTS = {
 
   // capacitor: two EQUAL parallel bars ⟂ axis, separated by obj.gap (world mm).
   capacitor(g, geo, sw, color, obj) {
-    const H = CIRCUIT_BODY_HALF_H;
+    const H = circuitHalfHeight(obj);
     const half = geo.half;
     let gap = (obj && Number.isFinite(obj.gap)) ? obj.gap : CIRCUIT_CAP_GAP_DEFAULT;
     gap = Math.min(gap, half * 1.6);                              // keep plates inside the body span
@@ -1470,7 +1482,7 @@ const CIRCUIT_ELEMENTS = {
       const steps = 10;
       for (let s = (b === 0 ? 0 : 1); s <= steps; s++) {
         const th = Math.PI * (s / steps);                        // 0 → π semicircle
-        const p = circuitPt(geo, ac - R * Math.cos(th), R * Math.sin(th));
+        const p = circuitPt(geo, ac - R * Math.cos(th), R * Math.sin(th) * geo.heightScale);
         pts.push(`${p.x},${p.y}`);
       }
     }
@@ -1519,15 +1531,15 @@ const CIRCUIT_ELEMENTS = {
   },
 
   // ammeter: circle body with "A" inside.
-  ammeter(g, geo, sw, color) {
-    circuitCircleBody(g, geo, sw, color);
-    cText(g, geo.mid.x, geo.mid.y, "A", CIRCUIT_CIRCLE_R * 1.2, color);
+  ammeter(g, geo, sw, color, obj) {
+    circuitCircleBody(g, geo, sw, color, obj);
+    cText(g, geo.mid.x, geo.mid.y, "A", Math.max(0.25, circuitHalfHeight(obj)) * 1.2, color);
   },
 
   // voltmeter: circle body with "V" inside.
-  voltmeter(g, geo, sw, color) {
-    circuitCircleBody(g, geo, sw, color);
-    cText(g, geo.mid.x, geo.mid.y, "V", CIRCUIT_CIRCLE_R * 1.2, color);
+  voltmeter(g, geo, sw, color, obj) {
+    circuitCircleBody(g, geo, sw, color, obj);
+    cText(g, geo.mid.x, geo.mid.y, "V", Math.max(0.25, circuitHalfHeight(obj)) * 1.2, color);
   },
 };
 

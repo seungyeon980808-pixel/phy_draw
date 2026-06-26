@@ -10,9 +10,9 @@
 // which snapshots only `objects` and rebuilds groups). groupId is the single
 // source of truth, so we rebuild groups on load via that same helper.
 
-import { rebuildGroups } from "./transform.js?v=0.17.5";
-import { screenToWorld } from "./viewport.js?v=0.17.5";
-import { applyNewObjectStyleDefaults, migrateObjectStyleMode } from "./style-mode.js?v=0.17.5";
+import { rebuildGroups } from "./transform.js?v=0.17.6";
+import { screenToWorld } from "./viewport.js?v=0.17.6";
+import { applyNewObjectStyleDefaults, migrateObjectStyleMode } from "./style-mode.js?v=0.17.6";
 
 // Schema version of the saved file. Distinct from the app UI version.
 // 0.15 adds editing guides; older files without them load with an empty guide list.

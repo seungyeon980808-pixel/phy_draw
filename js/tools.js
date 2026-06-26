@@ -11,16 +11,16 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.17.5";
+import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.17.6";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt,
-} from "./state.js?v=0.17.5";
+} from "./state.js?v=0.17.6";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon } from "./render.js?v=0.17.5";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.17.5";
-import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.17.5";
+import { circuitBodyPolygon } from "./render.js?v=0.17.6";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.17.6";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.17.6";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -510,9 +510,9 @@ function setupClickDrawing() {
     if (!clickTool) return;
     const vb = _state.get().viewBox;
     let cur = screenToWorld(_svg, vb, e.clientX, e.clientY);
-    // Ctrl = 15° angle snap (line / polyline / circuit). The preview uses the SAME
+    // Ctrl = 15° angle snap (line / polyline / circuit / arc). The preview uses the SAME
     // shared snapAngle helper as the commit path above, so they can never diverge.
-    if (e.ctrlKey && (clickTool === "L" || clickTool === "P" || clickTool === "CIRCUIT") && draftPoints.length > 0) {
+    if (e.ctrlKey && (clickTool === "L" || clickTool === "P" || clickTool === "CIRCUIT" || clickTool === "ARC") && draftPoints.length > 0) {
       cur = snapAngle(draftPoints[draftPoints.length - 1], cur);
     }
     mouseWorld = cur;
@@ -596,7 +596,8 @@ function commitCircuit() {
 // ESC mid-gesture discards the draft (handled by setActiveTool / the ESC keydown).
 function handleArcClick(e) {
   const vb = _state.get().viewBox;
-  const cur = screenToWorld(_svg, vb, e.clientX, e.clientY);
+  let cur = screenToWorld(_svg, vb, e.clientX, e.clientY);
+  if (e.ctrlKey && draftPoints.length > 0) cur = snapAngle(draftPoints[draftPoints.length - 1], cur);
   draftPoints.push(cur);
   clickTool = "ARC";
   mouseWorld = cur;
@@ -1004,6 +1005,9 @@ function makeCircuit(a, b) {
     order: 0,                 // assigned on commit (z-order within layer)
   };
   // Element-specific data fields (only the relevant element carries each).
+  if (["resistor", "inductor", "capacitor", "voltmeter", "ammeter"].includes(element)) {
+    obj.height = (element === "voltmeter" || element === "ammeter") ? 5.12 : 3.2;
+  }
   if (element === "capacitor") obj.gap = CIRCUIT_CAP_GAP_DEFAULT; // plate separation (world mm)
   if (element === "diode") obj.terminalLabels = ["", ""];          // 단자1 / 단자2
   return applyNewObjectStyleDefaults(obj);

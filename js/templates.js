@@ -21,10 +21,10 @@
 //               geometry on canvas drag/click via makeShape()/makeCircuit()/the ARC
 //               tool. The registry only names which tool + variant to arm.
 
-import { state } from "./state.js?v=0.17.5";
-import { armSymbol } from "./tools.js?v=0.17.5";
-import { renderObject } from "./render.js?v=0.17.5";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.17.5";
+import { state } from "./state.js?v=0.17.6";
+import { armSymbol } from "./tools.js?v=0.17.6";
+import { renderObject } from "./render.js?v=0.17.6";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.17.6";
 
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm) — matches tools.js shapes
 
@@ -123,7 +123,7 @@ export const TEMPLATES = {
   pulley:      { kind: "shape", category: "역학", label: "도르래",   keywords: ["도르래", "pulley", "활차"],             create: { tool: "OPTICS", kind: "pulley" } },
   support_tri: { kind: "shape", category: "역학", label: "받침대",   keywords: ["받침대", "지지대", "support", "stand"],  create: { tool: "OPTICS", kind: "support_tri" } },
   pivot:       { kind: "shape", category: "역학", label: "회전축",   keywords: ["회전축", "pivot", "축", "axis"],         create: { tool: "OPTICS", kind: "pivot" } },
-  node:        { kind: "shape", category: "역학", label: "마디",     keywords: ["마디", "연결점", "node", "joint"],      create: { tool: "OPTICS", kind: "node" } },
+  node:        { kind: "shape", category: "공통", label: "점",       keywords: ["점", "마디", "연결점", "node", "joint"], create: { tool: "OPTICS", kind: "node" } },
   bar_magnet:  { kind: "shape", category: "역학", label: "막대자석", keywords: ["막대자석", "자석", "magnet", "NS"],      create: { tool: "OPTICS", kind: "bar_magnet" } },
 };
 
@@ -176,6 +176,7 @@ const CATEGORY_ORDER = ["공통", "회로", "광학", "역학"];
 const SVG_NS = "http://www.w3.org/2000/svg";
 const ICON_PX = 16;          // tool-ico render box (matches css .tool-btn kbd .tool-ico)
 const ICON_STROKE_PX = 1.1;  // target on-screen stroke weight (≈ the base-tool icons)
+const CIRCUIT_PALETTE_LABELS = { resistor: "R", inductor: "L", capacitor: "C", voltmeter: "V", ammeter: "A" };
 
 // Representative bounding boxes (world mm) per OPTICS kind — only drives the icon's
 // aspect ratio; the viewBox auto-fits afterwards. fillNone keeps shapes hollow.
@@ -285,10 +286,18 @@ function makeSymbolButton(id, def, pending) {
   btn.title = def.label;                 // name on hover ONLY (tooltip), never inside the button
 
   const kbd = document.createElement("kbd");
-  const icon = buildSymbolIcon(id, def);
-  kbd.appendChild(icon);
+  const label = CIRCUIT_PALETTE_LABELS[id];
+  if (label) {
+    const letter = document.createElement("span");
+    letter.className = "tool-letter";
+    letter.textContent = label;
+    kbd.appendChild(letter);
+  } else {
+    const icon = buildSymbolIcon(id, def);
+    kbd.appendChild(icon);
+    pending.push(icon);
+  }
   btn.appendChild(kbd);
-  pending.push(icon);
   return btn;
 }
 
