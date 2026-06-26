@@ -241,26 +241,30 @@ function layoutFrac(node, F, font) {
 
 function layoutVec(node, F, font) {
   const body = layout(node.body, F, font);
-  const overhang = Math.min(F * 0.05, Math.max(body.w * 0.08, F * 0.02));
-  const w = Math.max(body.w + overhang * 2, F * 0.32);
-  const gap = F * 0.025;
-  const arrowRel = -(body.ascent + gap);
-  const ascent = body.ascent + gap + F * 0.10;
+  const minBodyW = Math.max(body.w, F * 0.18);
+  const overhang = Math.min(F * 0.05, Math.max(minBodyW * 0.05, F * 0.015));
+  const w = Math.max(minBodyW + overhang * 2, F * 0.32);
+  const gap = F * 0.14;
+  const stroke = Math.max(F * 0.055, 0.08);
+  const head = Math.max(F * 0.085, stroke * 1.8);
+  const arrowRel = -(body.ascent + gap + head * 0.55 + stroke * 0.5);
+  const ascent = body.ascent + gap + head * 1.1 + stroke;
   return {
     w, ascent, descent: body.descent,
     draw(g, x, baseY) {
       body.draw(g, x + (w - body.w) / 2, baseY);
       const y = baseY + arrowRel;
-      const head = F * 0.10;
-      const start = x + overhang * 0.35;
-      const end = x + w - overhang * 0.35;
+      const bodyCenter = x + w / 2;
+      const arrowLen = Math.min(Math.max(body.w, F * 0.24) * 1.04, w);
+      const start = bodyCenter - arrowLen / 2;
+      const end = bodyCenter + arrowLen / 2;
       const p = el("path");
       p.setAttribute("d",
         `M ${start} ${y} L ${end} ${y} ` +
         `M ${end - head} ${y - head * 0.55} L ${end} ${y} L ${end - head} ${y + head * 0.55}`);
       p.setAttribute("fill", "none");
       p.setAttribute("stroke", INK);
-      p.setAttribute("stroke-width", Math.max(F * 0.032, 0.07));
+      p.setAttribute("stroke-width", stroke);
       p.setAttribute("stroke-linecap", "round");
       p.setAttribute("stroke-linejoin", "round");
       g.appendChild(p);

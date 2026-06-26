@@ -10,7 +10,7 @@
 import { getZoom, getRenderScale } from "./viewport.js?v=0.17.2";
 import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.17.2";
 import { resolveObjectStyle } from "./style-mode.js?v=0.17.2";
-import { renderFormula } from "./formula.js?v=0.17.2";
+import { renderFormula } from "./formula.js?v=0.17.4";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 

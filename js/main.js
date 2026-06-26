@@ -8,13 +8,13 @@
 
 // ?v= matches index.html so a version bump reloads every module, not just main.
 import { state } from "./state.js?v=0.17.2";
-import { render } from "./render.js?v=0.17.2";
+import { render } from "./render.js?v=0.17.4";
 import { initViewport, getZoom, screenToWorld, centerView, setCenterLocked } from "./viewport.js?v=0.17.2";
-import { initTools } from "./tools.js?v=0.17.2";
+import { initTools } from "./tools.js?v=0.17.4";
 import { initTransform, undo, redo } from "./transform.js?v=0.17.2";
 import { initInspector } from "./inspector.js?v=0.17.2";
 import { initProjectIO } from "./project-io.js?v=0.17.2";
-import { initExportDialog } from "./export-dialog.js?v=0.17.2";
+import { initExportDialog } from "./export-dialog.js?v=0.17.4";
 import { initRuler, setRulerVisible } from "./ruler.js?v=0.17.2";
 import { initSettings } from "./settings.js?v=0.17.2";
 import { initImageObjectify } from "./image-objectify.js?v=0.17.2";
@@ -242,7 +242,7 @@ window.phyDraw = {
 })();
 
 console.info(
-  "[5E v0.17.2] Pick R (or press R), drag on the canvas to draw a\n" +
+  "[5E v0.17.4] Pick R (or press R), drag on the canvas to draw a\n" +
     "Press 'd' to toggle the live coord-debug overlay (pointer?봶orld mapping).\n" +
     "rectangle. Verify with:\n" +
     "  phyDraw.objects()        // array of committed rect objects\n" +
