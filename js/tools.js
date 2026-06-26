@@ -11,16 +11,16 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.17.2";
+import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.17.5";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt,
-} from "./state.js?v=0.17.2";
+} from "./state.js?v=0.17.5";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon } from "./render.js?v=0.17.2";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.17.2";
-import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.17.4";
+import { circuitBodyPolygon } from "./render.js?v=0.17.5";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.17.5";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.17.5";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -1491,6 +1491,14 @@ function _enableUnifiedEditorDrag(header) {
   window.addEventListener("mouseup", () => { drag = null; });
 }
 
+function _centerUnifiedEditor(wrap) {
+  if (!_textBox || !wrap) return;
+  const left = Math.max(0, Math.round((wrap.clientWidth - _textBox.offsetWidth) / 2));
+  const top = Math.max(0, Math.round((wrap.clientHeight - _textBox.offsetHeight) / 2));
+  _textBox.style.left = left + "px";
+  _textBox.style.top = top + "px";
+}
+
 function _openUnifiedTextEditor(draft, clientX, clientY, prefill) {
   _textAnchor = { x: draft.x, y: draft.y };
   draft.nativeEditor = true;
@@ -1498,13 +1506,10 @@ function _openUnifiedTextEditor(draft, clientX, clientY, prefill) {
   _state.update((s) => { s.draftText = draft; });
 
   const wrap = _svg.closest(".canvas-wrap");
-  const wr = wrap.getBoundingClientRect();
   _textCancelled = false;
   _textFormulaMode = draft.contentMode === "formula";
   _textBox = document.createElement("div");
   _textBox.className = "unified-text-editor";
-  _textBox.style.left = (clientX - wr.left) + "px";
-  _textBox.style.top = (clientY - wr.top) + "px";
 
   const title = document.createElement("div");
   title.className = "unified-editor-title";
@@ -1523,7 +1528,7 @@ function _openUnifiedTextEditor(draft, clientX, clientY, prefill) {
   row.className = "unified-editor-row";
   _textEditor = document.createElement("input");
   _textEditor.type = "text";
-  _textEditor.className = "unified-text-input";
+  _textEditor.className = "unified-text-input text-formula-source-input";
   _textEditor.spellcheck = false;
   _textEditor.setAttribute("autocomplete", "off");
   _textEditor.value = draft.contentMode === "formula" ? (draft.source || draft.text || "") : (draft.text || prefill || "");
@@ -1543,6 +1548,7 @@ function _openUnifiedTextEditor(draft, clientX, clientY, prefill) {
 
   _textBox.append(title, previewLabel, _textPreview, styleControls, row, _textFormulaPanel, actions);
   wrap.appendChild(_textBox);
+  _centerUnifiedEditor(wrap);
   _syncUnifiedStyleControls();
   _syncEditorFont();
   _textEditor.focus();
@@ -1654,6 +1660,16 @@ function _syncEditorFont() {
   if (!_textEditor) return;
   const dt = _state.get().draftText;
   if (!dt) return;
+  if (_textEditor.classList.contains("text-formula-source-input")) {
+    _textEditor.style.fontFamily = "";
+    _textEditor.style.fontSize = "";
+    _textEditor.style.lineHeight = "";
+    _textEditor.style.fontWeight = "";
+    _textEditor.style.fontStyle = "";
+    _textEditor.style.textDecoration = "";
+    _textEditor.style.width = "";
+    return;
+  }
   _textEditor.style.fontSize   = (dt.fontSize * getRenderScale()) + "px";
   _textEditor.style.fontFamily = dt.fontFamily || DEFAULT_TEXT_FONT;
   _textEditor.style.fontWeight = dt.fontWeight || "normal";
