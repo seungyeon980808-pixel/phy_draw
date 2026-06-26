@@ -1,4 +1,4 @@
-# PhysicsExamDrawer Web — 설계 결정 문서 (DESIGN.md)
+# 5E (sciEnceEducationalExamEasyEditor) — 설계 결정 문서 (DESIGN.md)
 
 > 이 문서는 **설계 결정과 그 근거**를 담는다.
 > "무엇을 만드나"(기능 개요)는 기획서를, "어떻게 만드나·왜 그렇게"는 이 문서를 본다.

@@ -13,9 +13,9 @@
 // we can distinguish "click on already-selected ??move allowed" from "click
 // selects a new object ??just select, no move this press."
 
-import { screenToWorld, getRenderScale } from "./viewport.js?v=0.17.0";
-import { resolveSnap } from "./snap.js?v=0.17.0";
-import { setSnapPreview } from "./render.js?v=0.17.0";
+import { screenToWorld, getRenderScale } from "./viewport.js?v=0.17.1";
+import { resolveSnap } from "./snap.js?v=0.17.1";
+import { setSnapPreview } from "./render.js?v=0.17.1";
 
 /* ----- shared lock guard: locked objects are excluded from mutating ops ----- */
 function isMutable(o) { return o && !o.locked; }

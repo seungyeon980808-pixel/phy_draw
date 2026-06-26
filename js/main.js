@@ -7,19 +7,19 @@
 //   4. init tools (tool selection + the rectangle draw pipeline).
 
 // ?v= matches index.html so a version bump reloads every module, not just main.
-import { state } from "./state.js?v=0.17.0";
-import { render } from "./render.js?v=0.17.0";
-import { initViewport, getZoom, screenToWorld, centerView, setCenterLocked } from "./viewport.js?v=0.17.0";
-import { initTools } from "./tools.js?v=0.17.0";
-import { initTransform, undo, redo } from "./transform.js?v=0.17.0";
-import { initInspector } from "./inspector.js?v=0.17.0";
-import { initProjectIO } from "./project-io.js?v=0.17.0";
-import { initExportDialog } from "./export-dialog.js?v=0.17.0";
-import { initRuler, setRulerVisible } from "./ruler.js?v=0.17.0";
-import { initSettings } from "./settings.js?v=0.17.0";
-import { initImageObjectify } from "./image-objectify.js?v=0.17.0";
-import { initTemplates } from "./templates.js?v=0.17.0";
-import { initObjectSearch } from "./search.js?v=0.17.0";
+import { state } from "./state.js?v=0.17.1";
+import { render } from "./render.js?v=0.17.1";
+import { initViewport, getZoom, screenToWorld, centerView, setCenterLocked } from "./viewport.js?v=0.17.1";
+import { initTools } from "./tools.js?v=0.17.1";
+import { initTransform, undo, redo } from "./transform.js?v=0.17.1";
+import { initInspector } from "./inspector.js?v=0.17.1";
+import { initProjectIO } from "./project-io.js?v=0.17.1";
+import { initExportDialog } from "./export-dialog.js?v=0.17.1";
+import { initRuler, setRulerVisible } from "./ruler.js?v=0.17.1";
+import { initSettings } from "./settings.js?v=0.17.1";
+import { initImageObjectify } from "./image-objectify.js?v=0.17.1";
+import { initTemplates } from "./templates.js?v=0.17.1";
+import { initObjectSearch } from "./search.js?v=0.17.1";
 
 const svg = document.getElementById("canvas");
 const zoomReadout = document.getElementById("zoom-readout");
@@ -63,8 +63,11 @@ const zoomReadout = document.getElementById("zoom-readout");
 
   const btn = document.getElementById("theme-toggle");
   function syncIcon() {
-    // show the action's target: ? = switch to light, ?뙔 = switch to dark
-    if (btn) btn.textContent = root.getAttribute("data-theme") === "dark" ? "?" : "?뙔";
+    if (!btn) return;
+    const dark = root.getAttribute("data-theme") === "dark";
+    btn.setAttribute("aria-pressed", String(dark));
+    btn.setAttribute("aria-label", dark ? "흑백 모드 끄기" : "흑백 모드 켜기");
+    btn.title = dark ? "흑백 모드 끄기" : "흑백 모드 켜기";
   }
   syncIcon();
 
@@ -239,7 +242,7 @@ window.phyDraw = {
 })();
 
 console.info(
-  "[PhysicsExamDrawer v0.17.0] Pick R (or press R), drag on the canvas to draw a\n" +
+  "[5E v0.17.1] Pick R (or press R), drag on the canvas to draw a\n" +
     "Press 'd' to toggle the live coord-debug overlay (pointer?봶orld mapping).\n" +
     "rectangle. Verify with:\n" +
     "  phyDraw.objects()        // array of committed rect objects\n" +

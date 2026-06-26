@@ -1,12 +1,12 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.17.0";
-import { openFontModalForSelection } from "./tools.js?v=0.17.0";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.17.1";
+import { openFontModalForSelection } from "./tools.js?v=0.17.1";
 import {
   getObjectStyleMode,
   prepareObjectStyleModeSwitch,
   resolveObjectStyle,
-} from "./style-mode.js?v=0.17.0";
+} from "./style-mode.js?v=0.17.1";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];

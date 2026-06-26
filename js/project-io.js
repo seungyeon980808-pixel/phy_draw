@@ -10,9 +10,9 @@
 // which snapshots only `objects` and rebuilds groups). groupId is the single
 // source of truth, so we rebuild groups on load via that same helper.
 
-import { rebuildGroups } from "./transform.js?v=0.17.0";
-import { screenToWorld } from "./viewport.js?v=0.17.0";
-import { applyNewObjectStyleDefaults, migrateObjectStyleMode } from "./style-mode.js?v=0.17.0";
+import { rebuildGroups } from "./transform.js?v=0.17.1";
+import { screenToWorld } from "./viewport.js?v=0.17.1";
+import { applyNewObjectStyleDefaults, migrateObjectStyleMode } from "./style-mode.js?v=0.17.1";
 
 // Schema version of the saved file. Distinct from the app UI version.
 // 0.15 adds editing guides; older files without them load with an empty guide list.
@@ -40,6 +40,10 @@ function migrate(data) {
       migrateObjectStyleMode(next);
       if (next.type === "text") {
         next.italic = next.italic ?? false;
+      }
+      if (next.type === "formula") {
+        next.italic = next.italic ?? false;
+        next.rawSource = next.rawSource ?? next.source ?? "";
       }
       if (next.type === "optics" && next.kind === "object_arrow") {
         next.dashLength = next.dashLength ?? 0;

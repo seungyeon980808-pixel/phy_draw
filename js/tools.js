@@ -11,16 +11,16 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.17.0";
+import { screenToWorld, getZoom, getRenderScale, worldToScreen } from "./viewport.js?v=0.17.1";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt,
-} from "./state.js?v=0.17.0";
+} from "./state.js?v=0.17.1";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon } from "./render.js?v=0.17.0";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.17.0";
-import { measureFormula, fontOf } from "./formula.js?v=0.17.0";
+import { circuitBodyPolygon } from "./render.js?v=0.17.1";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.17.1";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.17.1";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -78,7 +78,6 @@ export function initTools(svg, state) {
   setupTextClickToEdit();
   setupTextEditShortcuts();
   setupTextContextMenu();
-  setupFormulaTool();
 
   // Keep the tool buttons in sync with state.activeTool on every change.
   state.subscribe((s) => syncButtons(s.activeTool));
@@ -152,7 +151,6 @@ function setupKeyboard() {
     else if (key === "p") setActiveTool("P");
     else if (key === "c") setActiveTool("C");
     else if (key === "t") setActiveTool("T");
-    else if (key === "f") setActiveTool("FX");
   });
 }
 
@@ -277,8 +275,8 @@ function setupDrawing() {
         startEditingTextObject(hitId, { x: e.clientX, y: e.clientY }); return;
       }
       if (_ho && _ho.type === "formula") {
-        if (_fxInput) return; // already editing
-        openFormulaEditor({ objId: hitId }); return;
+        if (_textEditor) return;
+        startEditingTextObject(hitId, { x: e.clientX, y: e.clientY }); return;
       }
     }
     if (hitId === null && _at === "V") {
@@ -1114,7 +1112,12 @@ function evalBezier(seg, t) {
 // Enter commits; Shift+Enter inserts a newline; ESC cancels (restoring the
 // original when editing an existing object).
 
-let _textEditor = null;     // the live capture <textarea>, or null
+let _textEditor = null;     // the live capture <textarea>/<input>, or null
+let _textBox = null;        // unified floating text/formula editor container
+let _textPreview = null;
+let _textFormulaPanel = null;
+let _textDirectInput = null;
+let _textFormulaMode = false;
 let _textAnchor = null;     // world-space {x,y} of the text origin
 let _textCancelled = false; // set by ESC so blur doesn't double-commit
 
@@ -1134,11 +1137,13 @@ function setupTextTool() {
     const worldFontSize = DEFAULT_TEXT_SIZE_MM;
     _openTextEditor({
       x: anchor.x, y: anchor.y, text: "",
+      source: "", contentMode: "plain",
       fontSize: worldFontSize, fontFamily: DEFAULT_TEXT_FONT,
       fontWeight: "normal", fontStyle: "normal",
       italic: false, underline: false, strikeout: false, rotation: 0,
       styleMode: "exam",
       editingId: null,
+      editingType: null,
     }, _sc.x, _sc.y, "");
   });
 }
@@ -1152,10 +1157,13 @@ function startEditingTextObject(objId, clickPt = null) {
   if (_textEditor) _commitText();
   const s = _state.get();
   const o = s.objects.find((x) => x.id === objId);
-  if (!o || o.type !== "text") return;
+  if (!o || (o.type !== "text" && o.type !== "formula")) return;
   const sc = worldToScreen(_svg, s.viewBox, o.x, o.y);
   _openTextEditor({
-    x: o.x, y: o.y, text: o.text || "",
+    x: o.x, y: o.y,
+    text: o.type === "formula" ? (o.rawSource || o.source || "") : (o.text || ""),
+    source: o.rawSource || o.source || "",
+    contentMode: o.type === "formula" ? "formula" : "plain",
     fontSize: o.fontSize,
     fontFamily: o.fontFamily || DEFAULT_TEXT_FONT,
     fontWeight: o.fontWeight || "normal",
@@ -1165,6 +1173,7 @@ function startEditingTextObject(objId, clickPt = null) {
     rotation: o.rotation ?? 0,
     styleMode: o.styleMode || "free",
     editingId: o.id,
+    editingType: o.type,
   }, sc.x, sc.y, o.text || "", clickPt);
 }
 
@@ -1237,10 +1246,261 @@ function _caretIndexFromPoint(clientX, clientY) {
   return index == null ? null : Math.max(0, Math.min(_textEditor.value.length, index));
 }
 
+const FORMULA_SYMBOLS = ["θ", "λ", "Δ", "μ", "π", "→", "←", "±", "×", "₀", "₁", "₂", "₃", "²", "³", "Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ"];
+
+function normalizeFormulaSource(src) {
+  return String(src || "")
+    .replace(/\btheta\b/g, "θ")
+    .replace(/\blambda\b/g, "λ")
+    .replace(/\bDelta\b/g, "Δ")
+    .replace(/\bmu\b/g, "μ")
+    .replace(/\bpi\b/g, "π")
+    .replace(/\broman1\b/g, "Ⅰ")
+    .replace(/\broman2\b/g, "Ⅱ")
+    .replace(/\broman3\b/g, "Ⅲ")
+    .replace(/\broman4\b/g, "Ⅳ")
+    .replace(/\^(-?\d+)/g, (_m, n) => `^{${n}}`);
+}
+
+function looksLikeFormula(src) {
+  const value = String(src || "");
+  return _textFormulaMode || /\b(frac|vec|sqrt)\s*\{/.test(value) || /[_^]/.test(value);
+}
+
+function _textValue() {
+  return _textEditor ? _textEditor.value : "";
+}
+
+function _syncDraftFromUnifiedEditor() {
+  const raw = _textValue();
+  _state.update((s) => {
+    if (!s.draftText) return;
+    s.draftText.text = raw;
+    s.draftText.source = raw;
+    s.draftText.rawSource = raw;
+    s.draftText.contentMode = looksLikeFormula(raw) ? "formula" : "plain";
+  });
+  if (_textDirectInput && document.activeElement !== _textDirectInput) _textDirectInput.value = raw;
+  _refreshUnifiedPreview();
+}
+
+function _insertIntoUnifiedText(value) {
+  if (!_textEditor) return;
+  const start = _textEditor.selectionStart ?? _textEditor.value.length;
+  const end = _textEditor.selectionEnd ?? _textEditor.value.length;
+  _textEditor.value = _textEditor.value.slice(0, start) + value + _textEditor.value.slice(end);
+  const pos = start + value.length;
+  _textEditor.setSelectionRange(pos, pos);
+  _textFormulaMode = true;
+  _syncDraftFromUnifiedEditor();
+  _textEditor.focus();
+}
+
+function _makeFormulaMini(fields, build) {
+  const box = document.createElement("div");
+  box.className = "formula-mini";
+  const inputs = {};
+  for (const name of fields) {
+    const label = document.createElement("label");
+    label.textContent = name;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.spellcheck = false;
+    label.appendChild(input);
+    box.appendChild(label);
+    inputs[name] = input;
+  }
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "삽입";
+  button.addEventListener("click", () => {
+    const values = Object.fromEntries(Object.entries(inputs).map(([k, input]) => [k, input.value.trim()]));
+    _insertIntoUnifiedText(build(values));
+    box.remove();
+  });
+  box.appendChild(button);
+  return box;
+}
+
+function _openFormulaMini(kind, host) {
+  host.querySelector(".formula-mini")?.remove();
+  if (kind === "frac") host.appendChild(_makeFormulaMini(["분자", "분모"], (v) => `frac{${v["분자"] || ""}}{${v["분모"] || ""}}`));
+  if (kind === "vec") host.appendChild(_makeFormulaMini(["기호"], (v) => `vec{${v["기호"] || "F"}}`));
+  if (kind === "sqrt") host.appendChild(_makeFormulaMini(["내용"], (v) => `sqrt{${v["내용"] || ""}}`));
+}
+
+function _buildUnifiedFormulaPanel() {
+  const panel = document.createElement("div");
+  panel.className = "unified-formula-panel";
+  const tabs = document.createElement("div");
+  tabs.className = "formula-tabs";
+  const clickTab = document.createElement("button");
+  clickTab.type = "button"; clickTab.className = "formula-tab is-active"; clickTab.textContent = "클릭 입력";
+  const directTab = document.createElement("button");
+  directTab.type = "button"; directTab.className = "formula-tab"; directTab.textContent = "직접 입력";
+  tabs.append(clickTab, directTab);
+
+  const clickBody = document.createElement("div");
+  clickBody.className = "formula-tab-body";
+  const structure = document.createElement("div");
+  structure.className = "formula-palette-row";
+  [
+    ["분수", () => _openFormulaMini("frac", clickBody)],
+    ["벡터", () => _openFormulaMini("vec", clickBody)],
+    ["루트", () => _openFormulaMini("sqrt", clickBody)],
+    ["아래첨자", () => _insertIntoUnifiedText("₀")],
+    ["위첨자", () => _insertIntoUnifiedText("²")],
+  ].forEach(([label, fn]) => structure.appendChild(_fxPaletteButton(label, fn)));
+  const symbols = document.createElement("div");
+  symbols.className = "formula-palette-row";
+  FORMULA_SYMBOLS.forEach((sym) => symbols.appendChild(_fxPaletteButton(sym, () => _insertIntoUnifiedText(sym))));
+  clickBody.append(structure, symbols);
+
+  const directBody = document.createElement("div");
+  directBody.className = "formula-tab-body";
+  directBody.hidden = true;
+  _textDirectInput = document.createElement("textarea");
+  _textDirectInput.className = "formula-direct-input";
+  _textDirectInput.rows = 3;
+  _textDirectInput.spellcheck = false;
+  _textDirectInput.value = _textValue();
+  const apply = document.createElement("button");
+  apply.type = "button";
+  apply.className = "formula-apply-btn";
+  apply.textContent = "적용";
+  apply.addEventListener("click", () => {
+    _textEditor.value = _textDirectInput.value;
+    _textFormulaMode = true;
+    _syncDraftFromUnifiedEditor();
+    _textEditor.focus();
+  });
+  _textDirectInput.addEventListener("input", () => {
+    _textEditor.value = _textDirectInput.value;
+    _textFormulaMode = true;
+    _syncDraftFromUnifiedEditor();
+  });
+  directBody.append(_textDirectInput, apply);
+
+  function show(direct) {
+    clickTab.classList.toggle("is-active", !direct);
+    directTab.classList.toggle("is-active", direct);
+    clickBody.hidden = direct;
+    directBody.hidden = !direct;
+    if (direct) _textDirectInput.focus();
+  }
+  clickTab.addEventListener("click", () => show(false));
+  directTab.addEventListener("click", () => show(true));
+  panel.append(tabs, clickBody, directBody);
+  return panel;
+}
+
+function _refreshUnifiedPreview() {
+  if (!_textPreview) return;
+  const raw = _textValue();
+  _textPreview.replaceChildren();
+  if (!raw) return;
+  if (!looksLikeFormula(raw)) {
+    const plain = document.createElement("div");
+    plain.className = "plain-preview";
+    plain.textContent = raw;
+    _textPreview.appendChild(plain);
+    return;
+  }
+  const dt = _state.get().draftText || {};
+  const src = normalizeFormulaSource(raw);
+  const font = {
+    family: dt.fontFamily || DEFAULT_TEXT_FONT,
+    weight: dt.fontWeight || "normal",
+    style: dt.italic ? "italic" : "normal",
+  };
+  const m = measureFormula(src, dt.fontSize || DEFAULT_TEXT_SIZE_MM, font);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "formula-preview-svg");
+  svg.setAttribute("viewBox", `0 0 ${Math.max(m.w, 1)} ${Math.max(m.h, 1)}`);
+  svg.appendChild(renderFormula({
+    x: 0, y: 0, source: src,
+    fontSize: dt.fontSize || DEFAULT_TEXT_SIZE_MM,
+    fontFamily: dt.fontFamily || DEFAULT_TEXT_FONT,
+    fontWeight: dt.fontWeight || "normal",
+    italic: dt.italic === true,
+  }));
+  _textPreview.appendChild(svg);
+}
+
+function _openUnifiedTextEditor(draft, clientX, clientY, prefill) {
+  _textAnchor = { x: draft.x, y: draft.y };
+  draft.nativeEditor = true;
+  if (draft.editingType === "formula") _state.update((s) => { s.editingFormulaId = draft.editingId; });
+  _state.update((s) => { s.draftText = draft; });
+
+  const wrap = _svg.closest(".canvas-wrap");
+  const wr = wrap.getBoundingClientRect();
+  _textCancelled = false;
+  _textFormulaMode = draft.contentMode === "formula";
+  _textBox = document.createElement("div");
+  _textBox.className = "unified-text-editor";
+  _textBox.style.left = (clientX - wr.left) + "px";
+  _textBox.style.top = (clientY - wr.top) + "px";
+
+  const title = document.createElement("div");
+  title.className = "unified-editor-title";
+  title.textContent = "텍스트 입력";
+  const row = document.createElement("div");
+  row.className = "unified-editor-row";
+  _textEditor = document.createElement("input");
+  _textEditor.type = "text";
+  _textEditor.className = "unified-text-input";
+  _textEditor.spellcheck = false;
+  _textEditor.setAttribute("autocomplete", "off");
+  _textEditor.value = draft.contentMode === "formula" ? (draft.source || draft.text || "") : (draft.text || prefill || "");
+  const formulaBtn = document.createElement("button");
+  formulaBtn.type = "button";
+  formulaBtn.className = "unified-formula-toggle";
+  formulaBtn.textContent = "수식";
+  formulaBtn.addEventListener("click", () => {
+    _textFormulaMode = true;
+    _textFormulaPanel.hidden = !_textFormulaPanel.hidden;
+    _syncDraftFromUnifiedEditor();
+  });
+  row.append(_textEditor, formulaBtn);
+
+  const previewLabel = document.createElement("div");
+  previewLabel.className = "unified-preview-label";
+  previewLabel.textContent = "미리보기";
+  _textPreview = document.createElement("div");
+  _textPreview.className = "unified-preview";
+  _textFormulaPanel = _buildUnifiedFormulaPanel();
+  _textFormulaPanel.hidden = !_textFormulaMode;
+
+  const actions = document.createElement("div");
+  actions.className = "unified-editor-actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button"; cancel.className = "unified-editor-btn"; cancel.textContent = "취소";
+  cancel.addEventListener("click", () => { _textCancelled = true; _cancelText(); });
+  const ok = document.createElement("button");
+  ok.type = "button"; ok.className = "unified-editor-btn primary"; ok.textContent = "확인";
+  ok.addEventListener("click", () => _commitText());
+  actions.append(cancel, ok);
+
+  _textBox.append(title, row, previewLabel, _textPreview, _textFormulaPanel, actions);
+  wrap.appendChild(_textBox);
+  _textEditor.focus();
+  _textEditor.setSelectionRange(_textEditor.value.length, _textEditor.value.length);
+  _textEditor.addEventListener("input", _syncDraftFromUnifiedEditor);
+  _textEditor.addEventListener("keydown", (ke) => {
+    ke.stopPropagation();
+    if (ke.key === "Escape") { ke.preventDefault(); _textCancelled = true; _cancelText(); }
+    else if (ke.key === "Enter") { ke.preventDefault(); _commitText(); }
+  });
+  _syncDraftFromUnifiedEditor();
+}
+
 // Shared: seed the draft, build the capture textarea, wire its listeners.
 // clientX/clientY = screen px of the text's top-left anchor.
 // caretClick = client {x,y} of the opening mouse click, or null (F2 / menu).
 function _openTextEditor(draft, clientX, clientY, prefill, caretClick = null) {
+  _openUnifiedTextEditor(draft, clientX, clientY, prefill);
+  return;
   _textAnchor = { x: draft.x, y: draft.y };
   // While editing, the textarea renders both glyphs and caret. Keeping those in
   // one native layout is what makes selectionStart match the visible position.
@@ -1323,7 +1583,9 @@ function _openTextEditor(draft, clientX, clientY, prefill, caretClick = null) {
 
 // True when an element lives inside the text context menu or the font modal.
 function _elInTextUI(el) {
-  return (_ctxMenu && _ctxMenu.contains(el)) || (_fontModal && _fontModal.contains(el));
+  return (_textBox && _textBox.contains(el)) ||
+    (_ctxMenu && _ctxMenu.contains(el)) ||
+    (_fontModal && _fontModal.contains(el));
 }
 
 // Keep the capture textarea's caret sized/styled to the draft (on-screen px).
@@ -1364,12 +1626,22 @@ function _syncEditorWidth() {
 }
 
 function _removeTextEditor() {
+  if (_textBox) {
+    const box = _textBox;
+    _textBox = null;
+    box.remove();
+  }
+  _textPreview = null;
+  _textFormulaPanel = null;
+  _textDirectInput = null;
   if (_textEditor) {
     const el = _textEditor;
     _textEditor = null; // null first to prevent blur re-entrancy
-    el.remove();
+    if (el.parentElement) el.remove();
   }
   _textAnchor = null;
+  const editingId = _state.get().editingFormulaId;
+  if (editingId) _state.update((s) => { s.editingFormulaId = null; });
 }
 
 // ESC / tool-switch: drop the draft, commit nothing. When editing an existing
@@ -1382,7 +1654,10 @@ function _cancelText() {
 function _commitText() {
   if (!_textEditor) return;
   const dt = _state.get().draftText;
-  const val = dt ? dt.text : _textEditor.value;
+  const val = dt ? (dt.text ?? _textEditor.value) : _textEditor.value;
+  const rawSource = String(val || "").trim();
+  const formulaMode = dt && (dt.contentMode === "formula" || looksLikeFormula(rawSource));
+  const normalizedSource = normalizeFormulaSource(rawSource);
   const fromTool = _state.get().activeTool === "T"; // new-text path
   _removeTextEditor();
   if (!dt) return;
@@ -1392,11 +1667,29 @@ function _commitText() {
       // Re-edit: update the SAME object (id preserved). Empty text → keep the
       // original unchanged (prefer restore over delete). One undo entry.
       const o = s.objects.find((x) => x.id === dt.editingId);
-      if (o && (val || "").trim()) {
+      if (o && rawSource) {
         const snap = JSON.parse(JSON.stringify(s.objects));
         s.undoStack.push(snap);
         s.redoStack = [];
-        o.text = val;
+        if (formulaMode || o.type === "formula") {
+          o.type = "formula";
+          o.source = normalizedSource;
+          o.rawSource = rawSource;
+          const m = measureFormula(normalizedSource, dt.fontSize, {
+            family: dt.fontFamily || DEFAULT_TEXT_FONT,
+            weight: dt.fontWeight || "normal",
+            style: dt.italic === true ? "italic" : "normal",
+          });
+          o.w = m.w; o.h = m.h;
+          delete o.text;
+        } else {
+          o.type = "text";
+          o.text = val;
+          delete o.source;
+          delete o.rawSource;
+          delete o.w;
+          delete o.h;
+        }
         o.fontSize = dt.fontSize;
         o.fontFamily = dt.fontFamily;
         o.fontWeight = dt.fontWeight;
@@ -1406,22 +1699,46 @@ function _commitText() {
         o.strikeout = dt.strikeout;
         o.styleMode = dt.styleMode || o.styleMode || "free";
       }
-    } else if ((val || "").trim()) {
+    } else if (rawSource) {
       // New text built from the SAME draft data shown while typing.
       const snap = JSON.parse(JSON.stringify(s.objects));
       s.undoStack.push(snap);
       s.redoStack = [];
-      s.objects.push({
-        id: `obj_${Date.now().toString(36)}_${++_idCounter}`,
-        type: "text",
-        x: dt.x, y: dt.y, text: val,
+      const id = `obj_${Date.now().toString(36)}_${++_idCounter}`;
+      const common = {
+        id,
+        x: dt.x, y: dt.y,
         fontSize: dt.fontSize, fontFamily: dt.fontFamily,
         fontWeight: dt.fontWeight, fontStyle: dt.italic === true ? "italic" : "normal",
         italic: dt.italic === true, underline: dt.underline, strikeout: dt.strikeout,
         styleMode: dt.styleMode || "exam",
         rotation: 0, locked: false, positionLocked: false,
         layerId: s.activeLayerId, order: s.objects.length,
-      });
+      };
+      const next = formulaMode
+        ? (() => {
+            const m = measureFormula(normalizedSource, dt.fontSize, {
+              family: dt.fontFamily || DEFAULT_TEXT_FONT,
+              weight: dt.fontWeight || "normal",
+              style: dt.italic === true ? "italic" : "normal",
+            });
+            return applyNewObjectStyleDefaults({
+              ...common,
+              type: "formula",
+              source: normalizedSource,
+              rawSource,
+              w: m.w,
+              h: m.h,
+            });
+          })()
+        : {
+            ...common,
+            type: "text",
+            text: val,
+          };
+      s.objects.push(next);
+      s.selectedIds = [id];
+      s.targetedId = null;
     }
     s.draftText = null;
     if (fromTool) s.activeTool = "V"; // auto-return to select after new text
@@ -1673,7 +1990,7 @@ function setupTextClickToEdit() {
     const ids = s.selectedIds || [];
     if (ids.length !== 1) return;           // must be the SOLE selection
     const o = s.objects.find((x) => x.id === ids[0]);
-    if (!o || o.type !== "text") return;    // ...and it must be a text object
+    if (!o || (o.type !== "text" && o.type !== "formula")) return;    // ...and it must be a text/formula object
     // The click must actually land on THAT text (not empty space / another shape).
     const vb = s.viewBox;
     const tol = (HIT_TOL_PX * vb.w) / _svg.getBoundingClientRect().width;
@@ -1701,7 +2018,7 @@ function setupTextClickToEdit() {
     if (id === null) return;
     if (spaceHeld) return;
     const o = _state.get().objects.find((x) => x.id === id);
-    if (!o || o.type !== "text") return;
+    if (!o || (o.type !== "text" && o.type !== "formula")) return;
     startEditingTextObject(id, { x: e.clientX, y: e.clientY });
   });
 }
@@ -1719,7 +2036,7 @@ function setupTextEditShortcuts() {
     const ids = s.selectedIds || [];
     if (ids.length !== 1) return;
     const o = s.objects.find((x) => x.id === ids[0]);
-    if (!o || o.type !== "text") return;
+    if (!o || (o.type !== "text" && o.type !== "formula")) return;
     e.preventDefault();
     startEditingTextObject(o.id);
   });
@@ -1782,10 +2099,10 @@ function setupTextContextMenu() {
       const tol = HIT_TOL_PX / getZoom();
       const hitId = hitTest(s.objects, p, tol);
       const hitObj = hitId ? s.objects.find((o) => o.id === hitId) : null;
-      let obj = (hitObj && hitObj.type === "text") ? hitObj : null;
+      let obj = (hitObj && (hitObj.type === "text" || hitObj.type === "formula")) ? hitObj : null;
       if (!obj && (s.selectedIds || []).length === 1) {
         const sel = s.objects.find((o) => o.id === s.selectedIds[0]);
-        if (sel && sel.type === "text") obj = sel;
+        if (sel && (sel.type === "text" || sel.type === "formula")) obj = sel;
       }
       if (!obj) return; // not a text target → leave the native menu alone
       target = { kind: "object", id: obj.id };
@@ -2026,7 +2343,7 @@ function _applyFontModal() {
   if (_fmTarget.kind === "object") {
     _state.update((s) => {
       const o = s.objects.find((x) => x.id === _fmTarget.id);
-      if (!o || o.type !== "text") return;
+      if (!o || (o.type !== "text" && o.type !== "formula")) return;
       const snap = JSON.parse(JSON.stringify(s.objects));
       s.undoStack.push(snap);
       s.redoStack = [];
@@ -2047,5 +2364,5 @@ export function openFontModalForSelection() {
   const ids = s.selectedIds || [];
   if (ids.length !== 1) return;
   const o = s.objects.find((x) => x.id === ids[0]);
-  if (o && o.type === "text") _openFontModal({ kind: "object", id: o.id });
+  if (o && (o.type === "text" || o.type === "formula")) _openFontModal({ kind: "object", id: o.id });
 }
