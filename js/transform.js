@@ -13,10 +13,10 @@
 // we can distinguish "click on already-selected ??move allowed" from "click
 // selects a new object ??just select, no move this press."
 
-import { screenToWorld, getRenderScale } from "./viewport.js?v=0.17.9";
-import { resolveSnap } from "./snap.js?v=0.17.9";
-import { setSnapPreview } from "./render.js?v=0.17.9";
-import { pickSelectableObjectFromEvent } from "./tools.js?v=0.17.9";
+import { screenToWorld, getRenderScale } from "./viewport.js?v=0.17.10";
+import { resolveSnap, resolveEndpointSnap } from "./snap.js?v=0.17.10";
+import { setSnapPreview } from "./render.js?v=0.17.10";
+import { pickSelectableObjectFromEvent } from "./tools.js?v=0.17.10";
 
 /* ----- shared lock guard: locked objects are excluded from mutating ops ----- */
 function isMutable(o) { return o && !o.locked; }
@@ -266,6 +266,31 @@ function applyDelta(obj, orig, dx, dy) {
     obj.p2 = { x: orig.p2.x + dx, y: orig.p2.y + dy };
   } else if (obj.type === "polyline" || obj.type === "curve") {
     obj.points = orig.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+  }
+}
+
+/* ----- line-like endpoint handle <-> point bridge (for endpoint-priority snap) ----- */
+function handleEndpointPoint(obj, handle) {
+  if (obj.type === "line" || obj.type === "circuit") {
+    return handle === "p0" ? obj.p1 : obj.p2;
+  }
+  if ((obj.type === "polyline" || obj.type === "curve")
+      && typeof handle === "string" && handle[0] === "p") {
+    const i = parseInt(handle.slice(1), 10);
+    return Number.isInteger(i) ? obj.points?.[i] : null;
+  }
+  return null;
+}
+
+function setHandleEndpointPoint(obj, handle, pt) {
+  const next = { x: pt.x, y: pt.y };
+  if (obj.type === "line" || obj.type === "circuit") {
+    if (handle === "p0") obj.p1 = next; else obj.p2 = next;
+    return;
+  }
+  if (obj.type === "polyline" || obj.type === "curve") {
+    const i = parseInt(handle.slice(1), 10);
+    if (Number.isInteger(i) && obj.points?.[i]) obj.points[i] = next;
   }
 }
 
@@ -1304,10 +1329,26 @@ export function initTransform(svg, state) {
       const cur = screenToWorld(svg, vb, e.clientX, e.clientY);
       const dx = cur.x - _handleStartWorld.x;
       const dy = cur.y - _handleStartWorld.y;
+      /* ===== ENDPOINT SNAP HOOK: Shift snaps a dragged line endpoint to a
+       * high-priority target (other line endpoint / optical object head). Only the
+       * dragged endpoint moves; the opposite endpoint stays fixed. ===== */
+      if (!e.shiftKey) setSnapPreview(null);
       state.update((s) => {
         const obj = s.objects.find((o) => o.id === _handleOrigObj.id);
         if (!obj) return;
         applyHandleDelta(obj, _handleOrigObj, _handleId, dx, dy, e.shiftKey, e.ctrlKey);
+        let preview = null;
+        if (e.shiftKey) {
+          const dragged = handleEndpointPoint(obj, _handleId);
+          const snap = dragged
+            ? resolveEndpointSnap(dragged, [obj.id], getRenderScale(), state)
+            : null;
+          if (snap) {
+            preview = snap.preview;
+            if (snap.attach) setHandleEndpointPoint(obj, _handleId, snap.target);
+          }
+        }
+        setSnapPreview(preview);
       });
       if (!_didMove && Math.hypot(dx, dy) > MOVE_THRESHOLD) _didMove = true;
       return;
@@ -1407,6 +1448,8 @@ export function initTransform(svg, state) {
 
     if (_handleDragging) {
       _handleDragging = false;
+      /* ===== SNAP CLEAR HOOK: endpoint-handle release removes the overlay ===== */
+      setSnapPreview(null);
       if (_didMove && _pendingSnapshot) {
         const snap = _pendingSnapshot;
         state.update((s) => {
