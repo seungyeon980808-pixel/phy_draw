@@ -11,16 +11,17 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.18.0";
+import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.19.0";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt,
-} from "./state.js?v=0.18.0";
+} from "./state.js?v=0.19.0";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon } from "./render.js?v=0.18.0";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.18.0";
-import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.18.0";
+import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.19.0";
+import { resolveEndpointSnap } from "./snap.js?v=0.19.0";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.19.0";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.19.0";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -552,10 +553,13 @@ function setupClickDrawing() {
     if (!CLICK_TOOLS[tool]) return;               // only L / P place points
     const vb = _state.get().viewBox;
     let cur = screenToWorld(_svg, vb, e.clientX, e.clientY);
-    // Apply the SAME Ctrl angle snap used for the live preview so the COMMITTED
-    // endpoint is identical to what the preview showed (no last-pixel drift —
-    // a horizontal preview commits an exactly horizontal line). See snapAngle.
-    if (e.ctrlKey && (tool === "L" || tool === "P" || tool === "CIRCUIT") && draftPoints.length > 0) {
+    // Shift (line tool) = snap the placed endpoint onto another object's edge/curve/
+    // vertex (Feature C); takes precedence over Ctrl angle snap. Otherwise apply the
+    // SAME Ctrl angle snap used for the live preview so the COMMITTED endpoint is
+    // identical to what the preview showed (no last-pixel drift). See snapAngle.
+    if (tool === "L" && e.shiftKey) {
+      cur = snapDrawPoint(cur, true);
+    } else if (e.ctrlKey && (tool === "L" || tool === "P" || tool === "CIRCUIT") && draftPoints.length > 0) {
       cur = snapAngle(draftPoints[draftPoints.length - 1], cur);
     }
     draftPoints.push(cur);
@@ -571,10 +575,15 @@ function setupClickDrawing() {
     if (!clickTool) return;
     const vb = _state.get().viewBox;
     let cur = screenToWorld(_svg, vb, e.clientX, e.clientY);
-    // Ctrl = 15° angle snap (line / polyline / circuit / arc). The preview uses the SAME
-    // shared snapAngle helper as the commit path above, so they can never diverge.
-    if (e.ctrlKey && (clickTool === "L" || clickTool === "P" || clickTool === "CIRCUIT" || clickTool === "ARC" || clickTool === "RIGHTANGLE") && draftPoints.length > 0) {
+    // Shift (line tool) = live object-snap preview for the floating endpoint (Feature
+    // C); precedence over Ctrl. Ctrl = 15° angle snap (line / polyline / circuit /
+    // arc), sharing snapAngle with the commit path so preview and commit never diverge.
+    if (clickTool === "L" && e.shiftKey) {
+      cur = snapDrawPoint(cur, true);
+    } else if (e.ctrlKey && (clickTool === "L" || clickTool === "P" || clickTool === "CIRCUIT" || clickTool === "ARC" || clickTool === "RIGHTANGLE") && draftPoints.length > 0) {
       cur = snapAngle(draftPoints[draftPoints.length - 1], cur);
+    } else if (clickTool === "L") {
+      setSnapPreview(null); // Shift released mid-draw: drop the stale overlay
     }
     mouseWorld = cur;
     updateDraftPreview();
@@ -815,6 +824,18 @@ function clearClickLocals() {
   draftPoints = [];
   clickTool = null;
   mouseWorld = null;
+  setSnapPreview(null); // drop any transient endpoint-snap overlay
+}
+
+/* ----- Feature C: snap a line being DRAWN to other objects (Shift-gated) -----
+ * MOVE-ONLY relocation of the active endpoint to the nearest edge/curve/vertex.
+ * Shows the same projection-only preview overlay as the handle-edit path. Returns
+ * the (possibly snapped) world point. No exclusions — the line isn't an object yet. */
+function snapDrawPoint(world, shiftKey) {
+  if (!shiftKey) { setSnapPreview(null); return world; }
+  const snap = resolveEndpointSnap(world, [], getRenderScale(), _state);
+  setSnapPreview(snap ? snap.preview : null);
+  return snap && snap.attach ? { x: snap.target.x, y: snap.target.y } : world;
 }
 
 function resetClickDraft() {
@@ -1272,7 +1293,7 @@ function makePolyline(points) {
     fillStyle: "solid",    // "solid" | "dots" | "cross" | "hatch"
     // ----- 경사면처리 (corner-rounding): render-time fillet, never mutates points[] -----
     rounded: false,        // false = sharp joints; true = quadratic-fillet each interior vertex
-    cornerRadius: 12,      // back-off distance in world units (mm), clamped per segment at render
+    cornerRadius: 10,      // back-off distance in world units (mm), clamped per segment at render
     locked: false,
     positionLocked: false,
     layerId: 1,

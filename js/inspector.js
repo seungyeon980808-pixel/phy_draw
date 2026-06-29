@@ -1,12 +1,12 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.18.0";
-import { openFontModalForSelection } from "./tools.js?v=0.18.0";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.19.0";
+import { openFontModalForSelection } from "./tools.js?v=0.19.0";
 import {
   getObjectStyleMode,
   prepareObjectStyleModeSwitch,
   resolveObjectStyle,
-} from "./style-mode.js?v=0.18.0";
+} from "./style-mode.js?v=0.19.0";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -2206,7 +2206,7 @@ export function initInspector(state) {
       roundCb.checked = isRounded;
       radiusInp.disabled = !isRounded;
       radiusRow.style.opacity = isRounded ? "" : "0.5";
-      if (document.activeElement !== radiusInp) radiusInp.value = obj.cornerRadius ?? 12;
+      if (document.activeElement !== radiusInp) radiusInp.value = obj.cornerRadius ?? 10;
     }
 
     // 각도: straight line only. Skip while the field is focused so typing isn't clobbered.

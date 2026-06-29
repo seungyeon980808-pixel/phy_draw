@@ -7,10 +7,10 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.18.0";
-import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.18.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.18.0";
-import { renderFormula } from "./formula.js?v=0.18.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.19.0";
+import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.19.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.19.0";
+import { renderFormula } from "./formula.js?v=0.19.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -979,8 +979,10 @@ function renderLine(obj) {
 // quadratic Bezier whose CONTROL point is V itself, so straight slope/flat
 // segments stay perfectly straight and only the joints round off (this is a
 // per-vertex fillet, NOT a spline through all points). The back-off distance is
-// clamped to half of each adjacent segment so neighbouring roundings can't
-// overlap. Open path: P0 and Pn are left sharp (arrowhead direction unaffected).
+// clamped to a QUARTER of each adjacent segment, so each end loses at most 1/4
+// and at least half of every segment ALWAYS stays straight (straight runs
+// dominate, fillets stay narrow — as in the reference inclined-plane figure).
+// Open path: P0 and Pn are left sharp (arrowhead direction unaffected).
 function roundedPolylinePath(pts, radius, closed) {
   const P = pts || [];
   const n = P.length;
@@ -1001,7 +1003,7 @@ function roundedPolylinePath(pts, radius, closed) {
       const V = P[i];
       const A = P[(i - 1 + n) % n];
       const B = P[(i + 1) % n];
-      const off = Math.min(r, 0.5 * dist(A, V), 0.5 * dist(V, B));
+      const off = Math.min(r, 0.25 * dist(A, V), 0.25 * dist(V, B));
       const p1 = backoff(V, A, off);
       const p2 = backoff(V, B, off);
       d += i === 0 ? `M ${p1.x} ${p1.y}` : ` L ${p1.x} ${p1.y}`;
@@ -1015,7 +1017,7 @@ function roundedPolylinePath(pts, radius, closed) {
     const V = P[i];
     const A = P[i - 1];
     const B = P[i + 1];
-    const off = Math.min(r, 0.5 * dist(A, V), 0.5 * dist(V, B));
+    const off = Math.min(r, 0.25 * dist(A, V), 0.25 * dist(V, B));
     const p1 = backoff(V, A, off);
     const p2 = backoff(V, B, off);
     d += ` L ${p1.x} ${p1.y} Q ${V.x} ${V.y} ${p2.x} ${p2.y}`;
@@ -1042,7 +1044,7 @@ function renderPolyline(obj) {
     // 경사면처리 on: a filled <path> with rounded joints (keeps the same fill).
     if (obj.rounded === true && n >= 3) {
       const path = document.createElementNS(SVG_NS, "path");
-      path.setAttribute("d", roundedPolylinePath(pts, obj.cornerRadius ?? 12, true));
+      path.setAttribute("d", roundedPolylinePath(pts, obj.cornerRadius ?? 10, true));
       path.setAttribute("fill", resolveFill(obj));
       path.setAttribute("stroke", color);
       path.setAttribute("stroke-width", sw);
@@ -1088,7 +1090,7 @@ function renderPolyline(obj) {
   let el;
   if (obj.rounded === true && n >= 3) {
     el = document.createElementNS(SVG_NS, "path");
-    el.setAttribute("d", roundedPolylinePath(draw, obj.cornerRadius ?? 12, false));
+    el.setAttribute("d", roundedPolylinePath(draw, obj.cornerRadius ?? 10, false));
   } else {
     el = document.createElementNS(SVG_NS, "polyline");
     el.setAttribute("points", draw.map((p) => `${p.x},${p.y}`).join(" "));
@@ -1163,6 +1165,36 @@ function catmullRomClosedPath(pts) {
   }
   d += " Z";
   return d;
+}
+
+/* ----- curve outline as a flat list of {x,y} samples (for snapping/hit-tests) -----
+ * Mirrors catmullRomPath / catmullRomClosedPath exactly (same control points), so
+ * the sampled polyline tracks the rendered curve. Projection-only; never mutates
+ * obj.points. Closed curves include the wrap-around span. */
+export function curveSamplePoints(obj, samplesPerSeg = 12) {
+  const pts = (obj && obj.points) || [];
+  const n = pts.length;
+  if (n < 2) return pts.map((p) => ({ x: p.x, y: p.y }));
+  if (n === 2) return [{ x: pts[0].x, y: pts[0].y }, { x: pts[1].x, y: pts[1].y }];
+  const closed = obj.closed === true && n >= 3;
+  const evalSeg = (p0, p1, p2, p3, t) => {
+    const cp1x = p1.x + (p2.x - p0.x) / 6, cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6, cp2y = p2.y - (p3.y - p1.y) / 6;
+    const u = 1 - t;
+    const x = u * u * u * p1.x + 3 * u * u * t * cp1x + 3 * u * t * t * cp2x + t * t * t * p2.x;
+    const y = u * u * u * p1.y + 3 * u * u * t * cp1y + 3 * u * t * t * cp2y + t * t * t * p2.y;
+    return { x, y };
+  };
+  const out = [{ x: pts[0].x, y: pts[0].y }];
+  const segCount = closed ? n : n - 1;
+  for (let i = 0; i < segCount; i++) {
+    const p0 = closed ? pts[(i - 1 + n) % n] : pts[Math.max(i - 1, 0)];
+    const p1 = closed ? pts[i] : pts[i];
+    const p2 = closed ? pts[(i + 1) % n] : pts[i + 1];
+    const p3 = closed ? pts[(i + 2) % n] : pts[Math.min(i + 2, n - 1)];
+    for (let s = 1; s <= samplesPerSeg; s++) out.push(evalSeg(p0, p1, p2, p3, s / samplesPerSeg));
+  }
+  return out;
 }
 
 /* ----- curve: Catmull-Rom smooth path through anchors ----- */

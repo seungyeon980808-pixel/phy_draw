@@ -8,7 +8,7 @@
  * line, and polyline objects also contribute finite contact edges.
  */
 
-import { rotPt, singleObjBBox } from "./render.js?v=0.18.0";
+import { rotPt, singleObjBBox, curveSamplePoints } from "./render.js?v=0.19.0";
 
 const ATTACH_PX = 40;
 const PREVIEW_PX = 80;
@@ -34,16 +34,35 @@ function isSnapTargetEligible(obj, snapshot) {
 }
 
 /* Optical object head = top-center tip of the up-arrow, rotation applied about the
- * box center (mirrors renderOptics object_arrow + the rotate() transform). */
+ * box center (mirrors renderOptics object_arrow + the rotate() transform).
+ * Returns { head, attach }: `head` is the measured snap point; `attach` is the
+ * point a snapped light-ray endpoint is written to — pushed slightly INTO the
+ * object (head → box-center direction) by overlap = 0.5*strokeWidth + 1 so the
+ * stroke seam between ray and object is hidden (Feature B, no schema change). */
 function opticalObjectHead(obj) {
   const cx = obj.x + obj.w / 2;
-  const head = { x: cx, y: obj.y };
+  const center = { x: cx, y: obj.y + obj.h / 2 };
+  const rawHead = { x: cx, y: obj.y };
   const rot = obj.rotation || 0;
-  return rot ? rotPt(head.x, head.y, cx, obj.y + obj.h / 2, rot) : head;
+  const head = rot ? rotPt(rawHead.x, rawHead.y, center.x, center.y, rot) : rawHead;
+  // into-object unit direction = head → center (rotation already baked into both)
+  const dx = center.x - head.x, dy = center.y - head.y;
+  const len = Math.hypot(dx, dy);
+  const overlap = 0.5 * (obj.strokeWidth ?? 0.2) + 1;
+  const attach = len > 0
+    ? { x: head.x + (dx / len) * overlap, y: head.y + (dy / len) * overlap }
+    : { x: head.x, y: head.y };
+  return { head, attach };
 }
 
-function makeSnapPoint(p, type, objectId, pointKey, priority) {
-  return { x: p.x, y: p.y, type, objectId, pointKey, priority };
+/* attach defaults to p; pass a different attach point to offset where a snapped
+ * endpoint is WRITTEN while still measuring distance to p (used for optical heads). */
+function makeSnapPoint(p, type, objectId, pointKey, priority, attach) {
+  return {
+    x: p.x, y: p.y, type, objectId, pointKey, priority,
+    attachX: attach ? attach.x : p.x,
+    attachY: attach ? attach.y : p.y,
+  };
 }
 
 /* collectPrioritySnapPoints(state, excludeIds): high-priority targets only. */
@@ -67,7 +86,8 @@ export function collectPrioritySnapPoints(state, excludeIds) {
         points.push(makeSnapPoint(last, "line-endpoint", obj.id, "last", 0));
       }
     } else if (obj.type === "optics" && obj.kind === "object_arrow") {
-      points.push(makeSnapPoint(opticalObjectHead(obj), "optical-object-head", obj.id, "head", 1));
+      const { head, attach } = opticalObjectHead(obj);
+      points.push(makeSnapPoint(head, "optical-object-head", obj.id, "head", 1, attach));
     }
   }
   return points;
@@ -91,18 +111,54 @@ function nearestPriorityTarget(px, py, targets, maxDistance, scale) {
   return best;
 }
 
-/* resolveEndpointSnap: for a dragged line-like endpoint handle (Case A). Returns
- * { target, attach, preview } or null. Caller writes target onto the endpoint when
- * attach is true; otherwise only the preview overlay is shown. */
+/* resolveEndpointSnap: for a single dragged line endpoint — either editing an
+ * existing handle (Case A) or the live endpoint of a line being drawn (Feature C).
+ * Returns { target, attach, preview } or null. MOVE-ONLY: caller relocates just the
+ * dragged endpoint to `target` when attach is true; the other endpoint never moves.
+ *
+ * Candidates (closest within threshold wins; rank breaks near-ties):
+ *   rank 0 — exact vertex/endpoint/optical head (collectPrioritySnapPoints)
+ *   rank 1 — point projected onto a straight edge (line/polyline/rect/triangle)
+ *   rank 2 — point on a curved surface outline (ellipse / curve)
+ * Optical heads use their offset attach point so a ray overlaps the object (B). */
 export function resolveEndpointSnap(point, excludeIds, scale, state) {
   if (!isValidPoint(point)) return null;
   const safeScale = scale > 0 ? scale : 1;
-  const targets = collectPrioritySnapPoints(state, excludeIds);
-  if (!targets.length) return null;
-  const best = nearestPriorityTarget(point.x, point.y, targets, PREVIEW_PX / safeScale, safeScale);
+  const exclude = excludeIds instanceof Set ? excludeIds : new Set(excludeIds || []);
+  const previewDist = PREVIEW_PX / safeScale;
+  const attachDist = ATTACH_PX / safeScale;
+  const eps = 0.5 / safeScale;
+
+  let best = null; // { x, y, distance, rank }
+  const consider = (x, y, distance, rank) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || distance > previewDist) return;
+    if (!best || distance < best.distance - eps
+        || (Math.abs(distance - best.distance) <= eps && rank < best.rank)) {
+      best = { x, y, distance, rank };
+    }
+  };
+
+  // rank 0: high-priority vertices/endpoints/heads (measured at the head, written
+  // at the attach point which is offset into optical heads — Feature B).
+  for (const t of collectPrioritySnapPoints(state, exclude)) {
+    consider(t.attachX ?? t.x, t.attachY ?? t.y, Math.hypot(t.x - point.x, t.y - point.y), 0);
+  }
+
+  // rank 1 (straight edges) + rank 2 (curved surfaces) of every other eligible object.
+  const snapshot = state.get();
+  for (const obj of snapshot.objects) {
+    if (!obj?.id || exclude.has(obj.id) || !isSnapTargetEligible(obj, snapshot)) continue;
+    for (const [a, b] of straightEdgesOf(obj)) {
+      const q = nearestOnSegment(point, a, b);
+      consider(q.x, q.y, Math.hypot(q.x - point.x, q.y - point.y), 1);
+    }
+    const c = curvedSurfaceNearest(obj, point);
+    if (c) consider(c.x, c.y, Math.hypot(c.x - point.x, c.y - point.y), 2);
+  }
+
   if (!best) return null;
-  const target = { x: best.point.x, y: best.point.y };
-  const attach = best.distance <= ATTACH_PX / safeScale;
+  const target = { x: best.x, y: best.y };
+  const attach = best.distance <= attachDist;
   return {
     target,
     attach,
@@ -110,6 +166,109 @@ export function resolveEndpointSnap(point, excludeIds, scale, state) {
       ? { from: target, to: target }
       : { from: { x: point.x, y: point.y }, to: target },
   };
+}
+
+/* ----- Feature C geometry: nearest point on edges / curved surfaces ----- */
+
+/* Nearest point on segment a→b to p, clamped to the endpoints. */
+function nearestOnSegment(p, a, b) {
+  if (!isValidPoint(a) || !isValidPoint(b)) return { x: NaN, y: NaN };
+  const ex = b.x - a.x, ey = b.y - a.y;
+  const len2 = ex * ex + ey * ey;
+  if (len2 === 0) return { x: a.x, y: a.y };
+  let t = ((p.x - a.x) * ex + (p.y - a.y) * ey) / len2;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return { x: a.x + t * ex, y: a.y + t * ey };
+}
+
+/* Straight edges of a snap target, rotation/flip applied (excludes curved types). */
+function straightEdgesOf(obj) {
+  if (obj.type === "line" || obj.type === "circuit") {
+    return isUsableSegment(obj.p1, obj.p2) ? [[obj.p1, obj.p2]] : [];
+  }
+  if (obj.type === "polyline") {
+    const pts = Array.isArray(obj.points) ? obj.points : [];
+    const segs = [];
+    for (let i = 0; i + 1 < pts.length; i += 1) {
+      if (isUsableSegment(pts[i], pts[i + 1])) segs.push([pts[i], pts[i + 1]]);
+    }
+    if (obj.closed === true && pts.length > 2 && isUsableSegment(pts[pts.length - 1], pts[0])) {
+      segs.push([pts[pts.length - 1], pts[0]]); // wrap-around edge
+    }
+    return segs;
+  }
+  if (obj.type === "rect" || obj.type === "triangle") {
+    const v = polygonVertices(obj); // rotation + flip aware
+    return v.map((pt, i) => [pt, v[(i + 1) % v.length]]).filter(([a, b]) => isUsableSegment(a, b));
+  }
+  return [];
+}
+
+/* Nearest point on a curved-surface outline (ellipse / curve), or null. */
+function curvedSurfaceNearest(obj, p) {
+  if (obj.type === "ellipse") return ellipseOutlineNearest(obj, p);
+  if (obj.type === "curve") {
+    const samples = curveSamplePoints(obj);
+    if (samples.length < 2) return null;
+    const closed = obj.closed === true;
+    const last = closed ? samples.length : samples.length - 1;
+    let best = null;
+    for (let i = 0; i < last; i += 1) {
+      const q = nearestOnSegment(p, samples[i], samples[(i + 1) % samples.length]);
+      const d = Math.hypot(q.x - p.x, q.y - p.y);
+      if (Number.isFinite(d) && (!best || d < best.d)) best = { x: q.x, y: q.y, d };
+    }
+    return best;
+  }
+  return null;
+}
+
+/* Nearest point on an (optionally rotated) ellipse outline. Circle (w==h) is the
+ * exact center+radius case; a true ellipse is solved in local unrotated, centered
+ * space via a few angle-refinement steps, then transformed back to world. */
+function ellipseOutlineNearest(obj, p) {
+  const w = Math.abs(obj.w), h = Math.abs(obj.h);
+  if (!w || !h) return null;
+  const cx = obj.x + obj.w / 2, cy = obj.y + obj.h / 2;
+  const a = w / 2, b = h / 2;
+
+  if (Math.abs(w - h) <= Math.max(w, h) * CIRCLE_RATIO_EPSILON) {
+    const dx = p.x - cx, dy = p.y - cy;
+    const len = Math.hypot(dx, dy);
+    const r = (a + b) / 2;
+    if (len === 0) return { x: cx + r, y: cy };
+    return { x: cx + (dx / len) * r, y: cy + (dy / len) * r };
+  }
+
+  const rot = obj.rotation || 0;
+  const inv = -rot * Math.PI / 180;
+  const dx = p.x - cx, dy = p.y - cy;
+  const ic = Math.cos(inv), is = Math.sin(inv);
+  const lx = dx * ic - dy * is;
+  const ly = dx * is + dy * ic;
+
+  const px = Math.abs(lx), py = Math.abs(ly);
+  let t = Math.PI / 4;
+  for (let i = 0; i < 6; i += 1) {
+    const ex = a * Math.cos(t), ey = b * Math.sin(t);
+    const evx = ((a * a - b * b) * Math.cos(t) ** 3) / a;
+    const evy = ((b * b - a * a) * Math.sin(t) ** 3) / b;
+    const rx = ex - evx, ry = ey - evy;
+    const qx = px - evx, qy = py - evy;
+    const rlen = Math.hypot(rx, ry) || 1e-9;
+    const qlen = Math.hypot(qx, qy) || 1e-9;
+    const denom = Math.sqrt(Math.max(1e-12, a * a + b * b - ex * ex - ey * ey));
+    let s = (rx * qy - ry * qx) / (rlen * qlen);
+    s = s < -1 ? -1 : s > 1 ? 1 : s;
+    t += (rlen * Math.asin(s)) / denom;
+    t = t < 0 ? 0 : t > Math.PI / 2 ? Math.PI / 2 : t;
+  }
+  const sx = a * Math.cos(t) * (lx < 0 ? -1 : 1);
+  const sy = b * Math.sin(t) * (ly < 0 ? -1 : 1);
+
+  const fwd = rot * Math.PI / 180;
+  const fc = Math.cos(fwd), fs = Math.sin(fwd);
+  return { x: cx + sx * fc - sy * fs, y: cy + sx * fs + sy * fc };
 }
 
 /* Source endpoints of a moving line-like object (whole-object drag, Case B). */
@@ -156,7 +315,9 @@ function resolvePriorityMove(moveObjIds, origObjs, raw, scale, state) {
       preview: { from: best.source, to: { x: best.target.x, y: best.target.y } },
     };
   }
-  const attach = { x: best.target.x, y: best.target.y };
+  // Snap to the target's attach point (offset INTO an optical head; identical to
+  // the head for line endpoints), so a ray landing on an object overlaps its stroke.
+  const attach = { x: best.target.attachX ?? best.target.x, y: best.target.attachY ?? best.target.y };
   return {
     dx: raw.dx + (attach.x - best.source.x),
     dy: raw.dy + (attach.y - best.source.y),
