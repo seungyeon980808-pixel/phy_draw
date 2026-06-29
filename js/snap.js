@@ -8,7 +8,7 @@
  * line, and polyline objects also contribute finite contact edges.
  */
 
-import { rotPt, singleObjBBox, curveSamplePoints } from "./render.js?v=0.20.0";
+import { rotPt, singleObjBBox, curveSamplePoints } from "./render.js?v=0.21.0";
 
 const ATTACH_PX = 40;
 const PREVIEW_PX = 80;
@@ -38,24 +38,18 @@ function isSnapTargetEligible(obj, snapshot) {
 
 /* Optical object head = top-center tip of the up-arrow, rotation applied about the
  * box center (mirrors renderOptics object_arrow + the rotate() transform).
- * Returns { head, attach }: `head` is the measured snap point; `attach` is the
- * point a snapped light-ray endpoint is written to — pushed slightly INTO the
- * object (head → box-center direction) by overlap = 0.5*strokeWidth + 1 so the
- * stroke seam between ray and object is hidden (Feature B, no schema change). */
+ * Returns { head, attach }: `head` is the measured snap point. `attach` is the
+ * point an endpoint/line that snaps TO this object is written to — it equals the
+ * apex exactly so a light ray lands on the rendered arrowhead tip (FIX 1). The
+ * separate "optics object snaps ONTO a line" seam-hiding overlap is NOT here; it
+ * is recomputed against the target's stroke inside resolveOpticTipSnap. */
 function opticalObjectHead(obj) {
   const cx = obj.x + obj.w / 2;
   const center = { x: cx, y: obj.y + obj.h / 2 };
   const rawHead = { x: cx, y: obj.y };
   const rot = obj.rotation || 0;
   const head = rot ? rotPt(rawHead.x, rawHead.y, center.x, center.y, rot) : rawHead;
-  // into-object unit direction = head → center (rotation already baked into both)
-  const dx = center.x - head.x, dy = center.y - head.y;
-  const len = Math.hypot(dx, dy);
-  const overlap = 0.5 * (obj.strokeWidth ?? 0.2) + 1;
-  const attach = len > 0
-    ? { x: head.x + (dx / len) * overlap, y: head.y + (dy / len) * overlap }
-    : { x: head.x, y: head.y };
-  return { head, attach };
+  return { head, attach: head };
 }
 
 /* attach defaults to p; pass a different attach point to offset where a snapped
@@ -123,7 +117,7 @@ function nearestPriorityTarget(px, py, targets, maxDistance, scale) {
  *   rank 0 — exact vertex/endpoint/optical head (collectPrioritySnapPoints)
  *   rank 1 — point projected onto a straight edge (line/polyline/rect/triangle)
  *   rank 2 — point on a curved surface outline (ellipse / curve)
- * Optical heads use their offset attach point so a ray overlaps the object (B). */
+ * Optical heads attach exactly at the apex so a ray lands on the arrowhead tip. */
 export function resolveEndpointSnap(point, excludeIds, scale, state) {
   if (!isValidPoint(point)) return null;
   const safeScale = scale > 0 ? scale : 1;
@@ -158,8 +152,8 @@ function nearestSnapPoint(point, exclude, state, eps = 0) {
       best = { x, y, distance, rank, targetStroke: stroke };
     }
   };
-  // rank 0: high-priority vertices/endpoints/heads (measured at the head, written
-  // at the attach point which is offset into optical heads — Feature B).
+  // rank 0: high-priority vertices/endpoints/heads (measured at the head; the
+  // written attach point equals the head, so a ray lands on the optical apex).
   for (const t of collectPrioritySnapPoints(state, exclude)) {
     consider(t.attachX ?? t.x, t.attachY ?? t.y, Math.hypot(t.x - point.x, t.y - point.y), 0, undefined);
   }

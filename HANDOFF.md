@@ -181,3 +181,9 @@
 - URL: `https://github.com/seungyeon980808-pixel/phy_draw.git`
 - 브랜치: main, GitHub Pages 배포 기준
 - 아직 버전 태그 없음 → **v0.14.0이 첫 태그 후보**.
+
+---
+
+## 13. 알려진 문제 / 보류 (known issues / deferred)
+
+- Line endpoint → straight-edge (e.g. rectangle top face) snap does not engage in real click-select-drag use; endpoint should stick anywhere ALONG the edge (not only at corners). Deferred for later.
