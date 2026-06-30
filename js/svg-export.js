@@ -18,7 +18,7 @@
 // Both formats share buildExportSvg(); the dialog (export-dialog.js) decides
 // filename, format, and resolution and calls exportSvg() / exportPng().
 
-import { renderObject, makeFillPattern } from "./render.js?v=0.34.0";
+import { renderObject, makeFillPattern } from "./render.js?v=0.35.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const MM_PER_INCH = 25.4;
@@ -44,6 +44,34 @@ function downloadBlob(blob, filename) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+/* ----- choose where to save (File System Access API, with safe fallback) -----
+ * In Chromium/Edge, showSaveFilePicker lets the user pick the folder + filename.
+ * Return values are a small protocol the callers act on:
+ *   handle  → user picked a location; write the blob there (writeHandle).
+ *   null    → user cancelled the picker; the caller aborts the export silently.
+ *   undefined → API unsupported (or non-abort error); the caller falls back to a
+ *               normal browser download with the suggested filename.
+ * Must be called synchronously at the start of the export (before any other
+ * await) so it runs inside the click's transient user activation. */
+async function pickSaveHandle(filename, { mime, ext, description }) {
+  if (!window.showSaveFilePicker) return undefined;
+  try {
+    return await window.showSaveFilePicker({
+      suggestedName: filename,
+      types: [{ description, accept: { [mime]: [ext] } }],
+    });
+  } catch (e) {
+    if (e && e.name === "AbortError") return null; // user cancelled
+    return undefined;                               // permission/other → fall back
+  }
+}
+
+async function writeHandle(handle, blob) {
+  const writable = await handle.createWritable();
+  await writable.write(blob);
+  await writable.close();
 }
 
 /* ----- resolve the world rectangle to export ----- */
@@ -108,17 +136,32 @@ export function buildExportSvg(s, bounds = null) {
 /* ----- exportSvg: serialize the export SVG and trigger a download ----- */
 // `bounds` (optional): world {x,y,w,h} rectangle for selected-area capture.
 export async function exportSvg(state, filename, bounds = null) {
+  const name = filename || "physics_drawing.svg";
+  // Ask for the save location first, while still inside the user gesture.
+  const handle = await pickSaveHandle(name, { mime: "image/svg+xml", ext: ".svg", description: "SVG 이미지" });
+  if (handle === null) return; // user cancelled the save dialog
   const svg = buildExportSvg(state.get(), bounds);
   const source = new XMLSerializer().serializeToString(svg);
   // XML prolog keeps the file valid as a standalone .svg document.
   const doc = `<?xml version="1.0" encoding="UTF-8"?>\n${source}`;
   const blob = new Blob([doc], { type: "image/svg+xml" });
-  downloadBlob(blob, filename || "physics_drawing.svg");
+  if (handle) {
+    try { await writeHandle(handle, blob); }
+    catch (_) { downloadBlob(blob, name); } // write failed → fall back to download
+  } else {
+    downloadBlob(blob, name);
+  }
 }
 
 /* ----- exportPng: rasterize the export SVG at a DPI onto a white canvas ----- */
 // `bounds` (optional): world {x,y,w,h} rectangle for selected-area capture.
 export async function exportPng(state, filename, dpi, bounds = null) {
+  const name = filename || "physics_drawing.png";
+  // Ask for the save location first, while still inside the user gesture (before
+  // the async rasterization below, which would otherwise lose the activation).
+  const handle = await pickSaveHandle(name, { mime: "image/png", ext: ".png", description: "PNG 이미지" });
+  if (handle === null) return; // user cancelled the save dialog
+
   const s = state.get();
   const { x, y, w, h } = exportRegion(s, bounds);
 
@@ -157,7 +200,12 @@ export async function exportPng(state, filename, dpi, bounds = null) {
     ctx.drawImage(img, 0, 0, pixelW, pixelH);
     URL.revokeObjectURL(url);
     canvas.toBlob((blob) => {
-      if (blob) downloadBlob(blob, filename || "physics_drawing.png");
+      if (!blob) return;
+      if (handle) {
+        writeHandle(handle, blob).catch(() => downloadBlob(blob, name));
+      } else {
+        downloadBlob(blob, name);
+      }
     }, "image/png");
   };
   img.onerror = () => {

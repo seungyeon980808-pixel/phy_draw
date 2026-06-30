@@ -11,9 +11,9 @@
 //      with 취소 / 내보내기. On 내보내기 it delegates to svg-export.js's
 //      exportPng() or exportSvg(); the extension is appended from the format.
 
-import { exportPng, exportSvg } from "./svg-export.js?v=0.34.0";
-import { registerTopMenu } from "./top-menu.js?v=0.34.0";
-import { screenToWorld } from "./viewport.js?v=0.34.0";
+import { exportPng, exportSvg } from "./svg-export.js?v=0.35.0";
+import { registerTopMenu } from "./top-menu.js?v=0.35.0";
+import { screenToWorld } from "./viewport.js?v=0.35.0";
 
 const DEFAULT_NAME = "physics_drawing";
 
@@ -237,6 +237,18 @@ export function initExportDialog(state, svg) {
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !overlay.hidden) hideModal();
+  });
+
+  // Alt+P → open the image export dialog (P = print/picture; mirrors the text
+  // tool's single-key feel). preventDefault only inside the app so it never
+  // collides with a browser/system shortcut. Skip while typing in a field.
+  window.addEventListener("keydown", (e) => {
+    if (!e.altKey || e.ctrlKey || e.metaKey) return;
+    if ((e.key || "").toLowerCase() !== "p") return;
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    e.preventDefault();
+    if (overlay.hidden) showModal();
   });
 
   // Export the current settings, optionally cropped to a world-coord rectangle.

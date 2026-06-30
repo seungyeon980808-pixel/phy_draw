@@ -7,7 +7,7 @@
 // `viewBox` mirrors the SVG viewBox and is the ONLY coordinate authority
 // (DESIGN 1-2). Zoom/pan mutate this, never a CSS transform.
 
-import { createStore } from "./store.js?v=0.34.0";
+import { createStore } from "./store.js?v=0.35.0";
 
 export const TEXT_FONT_FAMILY = '"돋움", "Dotum", "Apple SD Gothic Neo", "맑은 고딕", "Malgun Gothic", sans-serif';
 export const EQUATION_FONT_FAMILY = '"HYhwpEQ", "HWhwpEQ", "Cambria Math", "Times New Roman", "Batang", "바탕", serif';
@@ -18,7 +18,9 @@ export const VARIABLE_LABEL_FONT_STYLE = "italic";
 export const CALLOUT_LABEL_FONT_STYLE = "normal";
 export const OBJECT_LABEL_TYPES = ["quantity", "label"];
 export const OBJECT_LABEL_QUANTITY_FONT_FAMILY = '"Times New Roman", "Cambria Math", "HYhwpEQ", "HWhwpEQ", "Batang", "바탕", serif';
-export const OBJECT_LABEL_TEXT_FONT_FAMILY = TEXT_FONT_FAMILY;
+// 라벨(물체명·비물리량) 기본 글꼴: 신명중명조 정체. 물리량(이탤릭 Times)과 구분.
+// 일반 텍스트 도구(돋움)와도 분리 — 객체 라벨 "라벨" 종류 전용.
+export const OBJECT_LABEL_TEXT_FONT_FAMILY = '"신명중명조", "Shin Myeongjo", "SMMyungJo", "Batang", "바탕", serif';
 
 function normalizeFontFamily(value) {
   return String(value || "")

@@ -13,10 +13,10 @@
 // we can distinguish "click on already-selected ??move allowed" from "click
 // selects a new object ??just select, no move this press."
 
-import { screenToWorld, getRenderScale } from "./viewport.js?v=0.34.0";
-import { resolveSnap, resolveEndpointSnap, resolveRadialCenterSnap } from "./snap.js?v=0.34.0";
-import { setSnapPreview } from "./render.js?v=0.34.0";
-import { pickSelectableObjectFromEvent } from "./tools.js?v=0.34.0";
+import { screenToWorld, getRenderScale } from "./viewport.js?v=0.35.0";
+import { resolveSnap, resolveEndpointSnap, resolveRadialCenterSnap } from "./snap.js?v=0.35.0";
+import { setSnapPreview } from "./render.js?v=0.35.0";
+import { pickSelectableObjectFromEvent } from "./tools.js?v=0.35.0";
 
 /* ----- shared lock guard: locked objects are excluded from mutating ops ----- */
 function isMutable(o) { return o && !o.locked; }
@@ -386,9 +386,10 @@ function applyHandleDeltaBase(obj, orig, handle, dx, dy, shiftKey, ctrlKey) {
     obj.y = orig.y;
     return;
   }
-  // Branch B: endpoint handles (line / circuit / polyline / curve). Circuit reuses
-  // the line's p0/p1 terminal drag; the body re-centers automatically at render.
-  if (obj.type === "line" || obj.type === "circuit") {
+  // Branch B: endpoint handles (line / circuit / labeler / polyline / curve).
+  // Circuit reuses the line's p0/p1 terminal drag (body re-centers at render);
+  // labeler treats p0 = leader anchor, p1 = label position (drag to reshape).
+  if (obj.type === "line" || obj.type === "circuit" || obj.type === "labeler") {
     if (handle === "p0") {
       const dragged = { x: orig.p1.x + dx, y: orig.p1.y + dy };
       obj.p1 = ctrlKey ? snapLineEndpoint(orig.p2, dragged) : dragged;
@@ -1150,7 +1151,7 @@ export function initTransform(svg, state) {
           // Closed polyline/curve rotates about its bbox CENTER (points are baked,
           // there is no rotation field / opposite-corner pivot to track). anglearc
           // rotates about its VERTEX (= objectCenter), spinning startAngle.
-          _rotPivot       = (obj.positionLocked || isClosedPoly(obj) || isClosedCurve(obj) || obj.type === "anglearc")
+          _rotPivot       = (obj.positionLocked || isClosedPoly(obj) || isClosedCurve(obj) || obj.type === "anglearc" || obj.type === "labeler")
             ? objectCenter(obj) : getRotPivot(obj, hLabel);
           const mouse     = screenToWorld(svg, s.viewBox, e.clientX, e.clientY);
           _rotStartAngle  = Math.atan2(mouse.y - _rotPivot.y, mouse.x - _rotPivot.x);
@@ -1242,6 +1243,28 @@ export function initTransform(svg, state) {
             x: px + cosP * (p.x - px) - sinP * (p.y - py),
             y: py + sinP * (p.x - px) + cosP * (p.y - py),
           }));
+        });
+        if (!_rotDidMove && Math.abs(deltaDeg) > 0.1) _rotDidMove = true;
+        return;
+      }
+
+      // labeler: a line-like object (p1 = leader anchor, p2 = label position).
+      // Rotate BOTH points about the pivot so the leader + label turn together as
+      // one object. The label text stays screen-upright (render's makeUprightLabel
+      // draws it horizontally regardless of geometry), so it remains readable.
+      if (_rotOrigObj.type === "labeler") {
+        const rad = deltaDeg * (Math.PI / 180);
+        const cosP = Math.cos(rad), sinP = Math.sin(rad);
+        const px = _rotPivot.x, py = _rotPivot.y;
+        const rp = (p) => ({
+          x: px + cosP * (p.x - px) - sinP * (p.y - py),
+          y: py + sinP * (p.x - px) + cosP * (p.y - py),
+        });
+        state.update((s) => {
+          const obj = s.objects.find((o) => o.id === _rotObjId);
+          if (!obj) return;
+          obj.p1 = rp(_rotOrigObj.p1);
+          obj.p2 = rp(_rotOrigObj.p2);
         });
         if (!_rotDidMove && Math.abs(deltaDeg) > 0.1) _rotDidMove = true;
         return;

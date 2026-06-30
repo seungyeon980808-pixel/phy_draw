@@ -1,8 +1,8 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, mmToPt, ptToMm, MIN_TEXT_PT, OBJECT_LABEL_TYPES } from "./state.js?v=0.34.0";
-import { openFontModalForSelection } from "./tools.js?v=0.34.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.34.0";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, mmToPt, ptToMm, MIN_TEXT_PT, OBJECT_LABEL_TYPES } from "./state.js?v=0.35.0";
+import { openFontModalForSelection, openLabelerTextEditor } from "./tools.js?v=0.35.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.35.0";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -1501,38 +1501,67 @@ export function initInspector(state) {
     });
   });
 
-  // labeler-only: preset circled Korean letters. Stored separately as obj.text
-  // so this remains its own schema, independent of shape/line obj.label fields.
+  // labeler-only: 이름(라벨 텍스트). Stored as obj.text (own schema, independent
+  // of shape/line obj.label). Direct character input — single-line quick edit in
+  // the inspector, plus a "편집" button that opens the multiline text editor
+  // (Enter 줄바꿈 · Ctrl+Enter 확인). Circled-letter presets remain available as a
+  // datalist convenience but are no longer required.
   const labelerTextRow = document.createElement("div");
   labelerTextRow.className = "insp-row";
   const labelerTextLbl = document.createElement("label");
   labelerTextLbl.className = "insp-field-label";
   labelerTextLbl.textContent = "이름";
-  const labelerTextSel = document.createElement("select");
-  labelerTextSel.className = "insp-input";
+  const labelerTextWrap = document.createElement("div");
+  labelerTextWrap.style.cssText = "display:flex;gap:4px;flex:1;min-width:0;";
+  const labelerTextInp = document.createElement("input");
+  labelerTextInp.type = "text";
+  labelerTextInp.maxLength = 120;
+  labelerTextInp.className = "insp-input";
+  labelerTextInp.setAttribute("list", "labeler-preset-list");
+  const labelerPresetList = document.createElement("datalist");
+  labelerPresetList.id = "labeler-preset-list";
   LABELER_PRESETS.forEach((preset) => {
     const opt = document.createElement("option");
     opt.value = preset;
-    opt.textContent = preset;
-    labelerTextSel.appendChild(opt);
+    labelerPresetList.appendChild(opt);
   });
+  const labelerEditBtn = document.createElement("button");
+  labelerEditBtn.type = "button";
+  labelerEditBtn.textContent = "편집";
+  labelerEditBtn.title = "여러 줄 텍스트 입력기 열기";
+  labelerEditBtn.style.cssText = "flex:0 0 auto;padding:4px 8px;font-size:11px;cursor:pointer;border:1px solid #3a3c41;border-radius:3px;background:#1e1f22;color:#dcddde;";
+  labelerTextWrap.appendChild(labelerTextInp);
+  labelerTextWrap.appendChild(labelerEditBtn);
   labelerTextRow.appendChild(labelerTextLbl);
-  labelerTextRow.appendChild(labelerTextSel);
+  labelerTextRow.appendChild(labelerTextWrap);
+  labelerTextRow.appendChild(labelerPresetList);
   sec3Body.appendChild(labelerTextRow);
-  labelerTextSel.addEventListener("change", () => {
+  function commitLabelerText() {
     const s = state.get();
-    if (!(s.selectedIds || []).length) return;
+    const id = (s.selectedIds || [])[0];
+    if (!id) return;
+    const val = labelerTextInp.value;
     const snap = JSON.parse(JSON.stringify(s.objects));
-    const val = LABELER_PRESETS.includes(labelerTextSel.value) ? labelerTextSel.value : "㉠";
     state.update((s2) => {
-      const o = s2.objects.find((it) => it.id === (s2.selectedIds || [])[0]);
+      const o = s2.objects.find((it) => it.id === id);
       if (!o || o.type !== "labeler" || o.locked) return;
-      if ((o.text ?? "㉠") === val) return;
+      if ((o.text ?? "") === val) return;
       o.text = val;
       s2.undoStack.push(snap);
       s2.redoStack = [];
     });
+  }
+  labelerTextInp.addEventListener("change", commitLabelerText);
+  labelerTextInp.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); commitLabelerText(); labelerTextInp.blur(); }
   });
+  labelerEditBtn.addEventListener("click", () => {
+    const id = (state.get().selectedIds || [])[0];
+    if (id) openLabelerTextEditor(id);
+  });
+  // labeler label type (물리량/라벨); default 라벨 — explanatory callout text.
+  const labelerLabelTypeRow = makeLabelTypeRow((o) => o.type === "labeler", "label");
+  sec3Body.appendChild(labelerLabelTypeRow.row);
   const labelerSizeRow = makeLabelSizeRow((o) => o.type === "labeler");
   sec3Body.appendChild(labelerSizeRow.row);
 
@@ -2605,10 +2634,11 @@ export function initInspector(state) {
     showLabelRow.style.display = (isOptics && !isNode) ? "" : "none";
     labelPosRow.style.display = isNode ? "" : "none";
     labelerTextRow.style.display = isLabeler ? "" : "none";
+    labelerLabelTypeRow.row.style.display = isLabeler ? "" : "none";
     labelerSizeRow.row.style.display = isLabeler ? "" : "none";
     if (isLabeler) {
-      const text = LABELER_PRESETS.includes(obj.text) ? obj.text : "㉠";
-      labelerTextSel.value = text;
+      if (document.activeElement !== labelerTextInp) labelerTextInp.value = obj.text ?? "";
+      labelerLabelTypeRow.sync(obj);
       if (document.activeElement !== labelerSizeRow.num) {
         labelerSizeRow.num.value = Math.round(mmToPt(obj.labelSize || DEFAULT_TEXT_SIZE_MM));
       }
@@ -2721,7 +2751,9 @@ export function initInspector(state) {
     saF.inp.disabled = !!obj.locked;
     swF.inp.disabled = !!obj.locked;
     labelInp.disabled = !!obj.locked;
-    labelerTextSel.disabled = !!obj.locked;
+    labelerTextInp.disabled = !!obj.locked;
+    labelerEditBtn.disabled = !!obj.locked;
+    labelerLabelTypeRow.sel.disabled = !!obj.locked;
     showLabelCb.disabled = !!obj.locked;
     labelPosSel.disabled = !!obj.locked;
     boxLabelInp.disabled = !!obj.locked;

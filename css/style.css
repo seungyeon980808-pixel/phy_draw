@@ -991,6 +991,16 @@ body {
   border-color: var(--c-main);
 }
 
+/* 라벨러 텍스트 입력기: 텍스트 도구 입력기와 같은 외형, 본문만 여러 줄(멀티라인) */
+.labeler-text-editor { width: 360px; }
+.labeler-text-input {
+  height: auto;
+  min-height: 84px;
+  resize: vertical;
+  white-space: pre;
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", "IBM Plex Sans KR", sans-serif;
+}
+
 .formula-editor {
   position: absolute;
   z-index: 200;

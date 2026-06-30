@@ -7,7 +7,7 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.34.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.35.0";
 import {
   DEFAULT_TEXT_FONT,
   DEFAULT_TEXT_SIZE_MM,
@@ -21,9 +21,9 @@ import {
   OBJECT_LABEL_TEXT_FONT_FAMILY,
   resolveTextFontStyle,
   resolveTextLetterSpacing,
-} from "./state.js?v=0.34.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.34.0";
-import { renderFormula } from "./formula.js?v=0.34.0";
+} from "./state.js?v=0.35.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.35.0";
+import { renderFormula } from "./formula.js?v=0.35.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -1650,8 +1650,10 @@ function renderLabeler(obj) {
   line.setAttribute("stroke-linecap", "round");
   g.appendChild(line);
 
-  // Upright (non-rotating) callout text at p2 in the normal text font.
-  const lbl = makeUprightLabel(obj.text, b.x, b.y, color, size, { labelKind: "callout" });
+  // Upright (non-rotating) callout text at p2. Default is the 라벨(Shin Myeongjo
+  // normal) callout font; if the labeler's labelType is set to 물리량 it renders as
+  // Times italic instead. labelKind "callout" makes "label" the fallback default.
+  const lbl = makeUprightLabel(obj.text, b.x, b.y, color, size, { labelKind: "callout", labelType: obj.labelType });
   if (lbl) g.appendChild(lbl);
 
   return g;
@@ -2766,6 +2768,43 @@ function renderHandles(sel, scene, zoom, activeTool) {
       makeHandle(hS.x,  hS.y,  "s");
       makeHandle(hSW.x, hSW.y, "sw");
       makeHandle(hW.x,  hW.y,  "w");
+    }
+  } else if (sel.type === "labeler" && activeTool === "rotate") {
+    // Labeler rotation: corner handles (blue circles + 90° arc hints) around the
+    // derived bbox spin the whole object (leader + label) about its center. Under
+    // the V tool the labeler instead shows its two endpoint handles (below).
+    const bb = singleObjBBox(sel, scene);
+    if (bb) {
+      const { x, y, w, h } = bb;
+      const rx = x + w, by = y + h;
+      const rotOuter = 28 / zoom;
+      const makeArc = (px, py, startDeg, endDeg) => {
+        const R = rotOuter;
+        const s = startDeg * Math.PI / 180, en = endDeg * Math.PI / 180;
+        const x1 = px + R * Math.cos(s), y1 = py + R * Math.sin(s);
+        const x2 = px + R * Math.cos(en), y2 = py + R * Math.sin(en);
+        const arc = document.createElementNS(SVG_NS, "path");
+        arc.setAttribute("d", `M ${x1} ${y1} A ${R} ${R} 0 0 1 ${x2} ${y2}`);
+        arc.setAttribute("fill", "none");
+        arc.setAttribute("stroke", "#0969da");
+        arc.setAttribute("stroke-width", 1.5 / zoom);
+        arc.setAttribute("pointer-events", "none");
+        g.appendChild(arc);
+      };
+      for (const [label, hx, hy, base] of [
+        ["nw", x, y, 180], ["ne", rx, y, 270], ["se", rx, by, 0], ["sw", x, by, 90]
+      ]) {
+        const c = document.createElementNS(SVG_NS, "circle");
+        c.setAttribute("cx", hx);
+        c.setAttribute("cy", hy);
+        c.setAttribute("r", half);
+        c.setAttribute("fill", "#0969da");
+        c.setAttribute("stroke", "none");
+        c.dataset.handle = label;
+        c.dataset.id = sel.id;
+        g.appendChild(c);
+        makeArc(hx, hy, base, base + 90);
+      }
     }
   } else if (sel.type === "line" || sel.type === "circuit" || sel.type === "labeler") {
     // Circuit + labeler reuse the line's two endpoint handles: drag p1/p2 to move

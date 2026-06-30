@@ -11,19 +11,19 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.34.0";
+import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.35.0";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt, MIN_TEXT_PT,
   EQUATION_FONT_FAMILY,
   isEquationFontFamily, resolveTextFontStyle, resolveTextLetterSpacing,
-} from "./state.js?v=0.34.0";
+} from "./state.js?v=0.35.0";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.34.0";
-import { resolveEndpointSnap } from "./snap.js?v=0.34.0";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.34.0";
-import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.34.0";
+import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.35.0";
+import { resolveEndpointSnap } from "./snap.js?v=0.35.0";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.35.0";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.35.0";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -168,6 +168,7 @@ function setupKeyboard() {
     else if (key === "a") activateSymbolShortcut("anglearc", "A"); // 각도호 — single binding
     else if (key === "g" && e.shiftKey) activateSymbolShortcut("rightangle", "Shift+G");
     else if (key === "c") setActiveTool("C");
+    else if (key === "t" && e.shiftKey) activateSymbolShortcut("labeler", "Shift+T"); // 라벨러 (텍스트 도구 T와 한 글자 차이)
     else if (key === "t") setActiveTool("T");
     else if (key === "f") setActiveTool("F");              // 자유그리기 (free-draw)
   });
@@ -318,6 +319,9 @@ function setupDrawing() {
       if (_ho && _ho.type === "formula") {
         if (_textEditor) return;
         startEditingTextObject(hitId, { x: e.clientX, y: e.clientY }); return;
+      }
+      if (_ho && _ho.type === "labeler") {
+        _openLabelerEditor(hitId, { selectAll: true }); return;
       }
     }
     if (hitId === null && _at === "V") {
@@ -1036,7 +1040,104 @@ function commitLabeler() {
   const lab = makeLabelerDraft(draftPoints[0], draftPoints[1]);
   const d = Math.hypot(lab.p2.x - lab.p1.x, lab.p2.y - lab.p1.y);
   if (d < MIN_SIZE) { resetClickDraft(); return; } // zero-length placement: discard
-  commitClickShape(lab);
+  commitClickShape(lab);                 // assigns lab.id and pushes it into state
+  // Two-click placement is preserved; right after committing, open the multiline
+  // text editor (like the text tool) so the user types the label content directly.
+  _state.update((s) => { s.selectedIds = lab.id ? [lab.id] : []; s.targetedId = null; });
+  if (lab.id) _openLabelerEditor(lab.id, { selectAll: true });
+}
+
+/* ===== LABELER TEXT EDITOR (멀티라인 직접 입력) ============================
+ * A small floating editor — same chrome as the text-tool dialog — that writes
+ * straight into obj.text of a labeler. Enter inserts a newline; Ctrl+Enter (or
+ * 확인) commits; Esc (or 취소) closes without changes. Korean / symbols / simple
+ * formula-like strings (m, h, Q, mgh) all type directly. Opened on creation and
+ * on double-click of an existing labeler (and from the inspector "편집" button). */
+let _labelerEditorBox = null;
+let _labelerEditorTextarea = null;
+let _labelerEditorObjId = null;
+
+function _closeLabelerEditor() {
+  if (_labelerEditorBox && _labelerEditorBox.parentElement) _labelerEditorBox.remove();
+  _labelerEditorBox = null;
+  _labelerEditorTextarea = null;
+  _labelerEditorObjId = null;
+}
+
+export function openLabelerTextEditor(objId) {
+  _openLabelerEditor(objId, { selectAll: true });
+}
+
+function _openLabelerEditor(objId, { selectAll = false } = {}) {
+  const s = _state.get();
+  const o = s.objects.find((x) => x.id === objId);
+  if (!o || o.type !== "labeler") return;
+  _closeLabelerEditor();
+  _labelerEditorObjId = objId;
+
+  const wrap = _svg.closest(".canvas-wrap");
+  const box = document.createElement("div");
+  box.className = "unified-text-editor labeler-text-editor";
+  _labelerEditorBox = box;
+
+  const title = document.createElement("div");
+  title.className = "unified-editor-title";
+  title.textContent = "라벨 텍스트 입력";
+
+  const hint = document.createElement("div");
+  hint.className = "unified-preview-label";
+  hint.textContent = "Enter 줄바꿈 · Ctrl+Enter 확인";
+
+  const ta = document.createElement("textarea");
+  ta.className = "unified-text-input labeler-text-input";
+  ta.spellcheck = false;
+  ta.setAttribute("autocomplete", "off");
+  ta.value = o.text ?? "";
+  _labelerEditorTextarea = ta;
+
+  const actions = document.createElement("div");
+  actions.className = "unified-editor-actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button"; cancel.className = "unified-editor-btn"; cancel.textContent = "취소";
+  const ok = document.createElement("button");
+  ok.type = "button"; ok.className = "unified-editor-btn primary"; ok.textContent = "확인";
+  actions.append(cancel, ok);
+
+  const commit = () => {
+    const val = String(ta.value ?? "");
+    const id = _labelerEditorObjId;
+    _closeLabelerEditor();
+    _state.update((st) => {
+      const obj = st.objects.find((x) => x.id === id);
+      if (!obj || obj.type !== "labeler") return;
+      if ((obj.text ?? "") === val) return;
+      const snap = JSON.parse(JSON.stringify(st.objects));
+      obj.text = val;
+      st.undoStack.push(snap);
+      st.redoStack = [];
+    });
+  };
+
+  ok.addEventListener("click", commit);
+  cancel.addEventListener("click", _closeLabelerEditor);
+  // Keep canvas shortcuts/marquee from reacting while interacting with the editor.
+  box.addEventListener("mousedown", (e) => e.stopPropagation());
+  ta.addEventListener("keydown", (ke) => {
+    ke.stopPropagation();                                   // shield window shortcuts
+    if (ke.key === "Escape") { ke.preventDefault(); _closeLabelerEditor(); }
+    else if (ke.key === "Enter" && (ke.ctrlKey || ke.metaKey)) { ke.preventDefault(); commit(); }
+    // plain Enter → newline (native textarea behavior, multiline)
+  });
+
+  box.append(title, hint, ta, actions);
+  wrap.appendChild(box);
+  const left = Math.max(0, Math.round((wrap.clientWidth - box.offsetWidth) / 2));
+  const top = Math.max(0, Math.round((wrap.clientHeight - box.offsetHeight) / 2));
+  box.style.left = left + "px";
+  box.style.top = top + "px";
+  ta.focus();
+  if (selectAll) ta.select();
+  else ta.setSelectionRange(ta.value.length, ta.value.length);
 }
 
 // POLYLINE / CURVE: needs ?? vertices; otherwise the draft is discarded.
