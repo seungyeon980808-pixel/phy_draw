@@ -22,7 +22,7 @@
  * source degrades to literal text rather than blanking the canvas.
  */
 
-import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM } from "./state.js?v=0.27.0";
+import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM } from "./state.js?v=0.28.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 // Glyph + rule ink. Mirrors renderText(), which always paints #0d1117 (text has

@@ -7,10 +7,10 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.27.0";
-import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.27.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.27.0";
-import { renderFormula } from "./formula.js?v=0.27.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.28.0";
+import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.28.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.28.0";
+import { renderFormula } from "./formula.js?v=0.28.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -874,7 +874,7 @@ function renderLine(obj) {
   let lineStyle = obj.lineMode ?? obj.lineStyle
     ?? (savedArrowHead === "center" ? "middleArrow" : savedArrowHead === "none" ? "solid" : "arrow");
   if (lineStyle === "dimensionArrow") lineStyle = "lengthArrow";
-  if (!["solid", "arrow", "middleArrow", "lengthArrow"].includes(lineStyle)) lineStyle = "solid";
+  if (!["solid", "arrow", "middleArrow", "midInward", "lengthArrow"].includes(lineStyle)) lineStyle = "solid";
   const arrowHead = lineStyle === "arrow"
     ? ({ right: "end", left: "start", both: "both" }[obj.arrowVariant] || savedArrowHead)
     : "none";
@@ -967,6 +967,14 @@ function renderLine(obj) {
     const my = (obj.p1.y + obj.p2.y) / 2;
     const direction = obj.arrowVariant === "left" ? -1 : 1;
     g.appendChild(makeArrowHead(mx, my, nx * direction, ny * direction, sw, color));
+  } else if (lineStyle === "midInward") {
+    // Two arrowheads at ~1/3 and ~2/3 of the span, BOTH pointing INWARD toward
+    // the midpoint (→ on the left half, ← on the right half) — bidirectional
+    // tension/compression. n = p1→p2 unit; left head aims +n, right head −n.
+    const p13 = { x: obj.p1.x + (obj.p2.x - obj.p1.x) / 3, y: obj.p1.y + (obj.p2.y - obj.p1.y) / 3 };
+    const p23 = { x: obj.p1.x + (obj.p2.x - obj.p1.x) * 2 / 3, y: obj.p1.y + (obj.p2.y - obj.p1.y) * 2 / 3 };
+    g.appendChild(makeArrowHead(p13.x, p13.y, nx, ny, sw, color));
+    g.appendChild(makeArrowHead(p23.x, p23.y, -nx, -ny, sw, color));
   } else if (lineStyle === "lengthArrow") {
     g.appendChild(makeArrowHead(obj.p2.x, obj.p2.y, nx, ny, sw, color));
     g.appendChild(makeArrowHead(obj.p1.x, obj.p1.y, -nx, -ny, sw, color));

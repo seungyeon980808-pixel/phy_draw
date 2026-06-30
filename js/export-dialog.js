@@ -11,8 +11,8 @@
 //      with 취소 / 내보내기. On 내보내기 it delegates to svg-export.js's
 //      exportPng() or exportSvg(); the extension is appended from the format.
 
-import { exportPng, exportSvg } from "./svg-export.js?v=0.27.0";
-import { registerTopMenu } from "./top-menu.js?v=0.27.0";
+import { exportPng, exportSvg } from "./svg-export.js?v=0.28.0";
+import { registerTopMenu } from "./top-menu.js?v=0.28.0";
 
 const DEFAULT_NAME = "physics_drawing";
 

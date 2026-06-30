@@ -1,8 +1,8 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm, MIN_TEXT_PT } from "./state.js?v=0.27.0";
-import { openFontModalForSelection } from "./tools.js?v=0.27.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.27.0";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm, MIN_TEXT_PT } from "./state.js?v=0.28.0";
+import { openFontModalForSelection } from "./tools.js?v=0.28.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.28.0";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -285,6 +285,10 @@ export function initInspector(state) {
     both:   '<line x1="4" y1="12" x2="36" y2="12" stroke="#888" stroke-width="1.5"/>' +
             '<polygon points="10,8 4,12 10,16" fill="#888"/>' +
             '<polygon points="30,8 36,12 30,16" fill="#888"/>',
+    // two arrows at ~1/3 and ~2/3, BOTH pointing inward toward the midpoint.
+    midInward: '<line x1="4" y1="12" x2="36" y2="12" stroke="#888" stroke-width="1.5"/>' +
+            '<polygon points="11,8 17,12 11,16" fill="#888"/>' +
+            '<polygon points="29,8 23,12 29,16" fill="#888"/>',
   };
   const MIDDLE_LEFT_ICON = '<line x1="4" y1="12" x2="36" y2="12" stroke="#888" stroke-width="1.5"/>' +
     '<polygon points="26,8 20,12 26,16" fill="#888"/>';
@@ -327,6 +331,7 @@ export function initInspector(state) {
     { value: "solid", label: "Solid", icon: ARROW_ICONS.none },
     { value: "arrow", label: "Arrow", icon: ARROW_ICONS.end },
     { value: "middleArrow", label: "Middle arrow", icon: ARROW_ICONS.center },
+    { value: "midInward", label: "Inward double arrow", icon: ARROW_ICONS.midInward },
     { value: "lengthArrow", label: "Length arrow", icon: ARROW_ICONS.both },
   ];
   const lineModeBtnEls = {};
