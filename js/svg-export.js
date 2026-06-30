@@ -18,10 +18,38 @@
 // Both formats share buildExportSvg(); the dialog (export-dialog.js) decides
 // filename, format, and resolution and calls exportSvg() / exportPng().
 
-import { renderObject, makeFillPattern } from "./render.js?v=0.24.0";
+import { renderObject, makeFillPattern } from "./render.js?v=0.25.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const MM_PER_INCH = 25.4;
+
+/* ----- embed 함초롬바탕 as a base64 @font-face so exports are self-contained ----- */
+// Both formats need the font INLINED in the SVG: a standalone .svg opened on
+// another machine won't have the family installed, and PNG rasterizes the SVG
+// through an <img>, whose isolated context cannot see the page's @font-face.
+// Best-effort: if the woff2 isn't present yet, embedding is skipped and text
+// falls back to the serif in the "HamchoromBatang", serif chain. Cached once.
+let _fontStylePromise = null;
+function loadEmbeddedFontCss() {
+  if (_fontStylePromise) return _fontStylePromise;
+  _fontStylePromise = (async () => {
+    try {
+      const url = new URL("../fonts/HamchoromBatang.woff2", import.meta.url);
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      let bin = "";
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      const b64 = btoa(bin);
+      return `@font-face{font-family:"HamchoromBatang";`
+           + `src:url("data:font/woff2;base64,${b64}") format("woff2");`
+           + `font-weight:normal;font-style:normal;}`;
+    } catch {
+      return null;
+    }
+  })();
+  return _fontStylePromise;
+}
 
 /* ----- a layer's visibility (mirrors render.js: hidden = visible === false) ----- */
 function isHidden(s, obj) {
@@ -43,7 +71,7 @@ function downloadBlob(blob, filename) {
 
 /* ----- build the standalone export <svg> for the current state ----- */
 // Background stays transparent here; PNG export adds its own white rect.
-export function buildExportSvg(s) {
+export function buildExportSvg(s, fontCss) {
   const { w, h } = s.artboard;
   const x = -w / 2;
   const y = -h / 2;
@@ -56,8 +84,17 @@ export function buildExportSvg(s) {
   // viewBox = artboard region exactly ??off-page content is cropped.
   svg.setAttribute("viewBox", `${x} ${y} ${w} ${h}`);
 
-  // ----- defs: artboard clip + per-object fill patterns (visible layers only) -----
+  // ----- defs: embedded font + artboard clip + per-object fill patterns -----
   const defs = document.createElementNS(SVG_NS, "defs");
+
+  // Inline 함초롬바탕 so the exported text renders with it anywhere (and in the
+  // <img>-rasterized PNG). Skipped silently when the woff2 isn't present.
+  if (fontCss) {
+    const style = document.createElementNS(SVG_NS, "style");
+    style.setAttribute("type", "text/css");
+    style.textContent = fontCss;
+    defs.appendChild(style);
+  }
 
   const clip = document.createElementNS(SVG_NS, "clipPath");
   clip.setAttribute("id", "artboard-clip");
@@ -91,8 +128,9 @@ export function buildExportSvg(s) {
 }
 
 /* ----- exportSvg: serialize the export SVG and trigger a download ----- */
-export function exportSvg(state, filename) {
-  const svg = buildExportSvg(state.get());
+export async function exportSvg(state, filename) {
+  const fontCss = await loadEmbeddedFontCss();
+  const svg = buildExportSvg(state.get(), fontCss);
   const source = new XMLSerializer().serializeToString(svg);
   // XML prolog keeps the file valid as a standalone .svg document.
   const doc = `<?xml version="1.0" encoding="UTF-8"?>\n${source}`;
@@ -101,7 +139,7 @@ export function exportSvg(state, filename) {
 }
 
 /* ----- exportPng: rasterize the export SVG at a DPI onto a white canvas ----- */
-export function exportPng(state, filename, dpi) {
+export async function exportPng(state, filename, dpi) {
   const s = state.get();
   const { w, h } = s.artboard;
   const x = -w / 2;
@@ -111,7 +149,8 @@ export function exportPng(state, filename, dpi) {
   const pixelW = Math.round((w / MM_PER_INCH) * dpi);
   const pixelH = Math.round((h / MM_PER_INCH) * dpi);
 
-  const svg = buildExportSvg(s);
+  const fontCss = await loadEmbeddedFontCss();
+  const svg = buildExportSvg(s, fontCss);
 
   // White background first (PNG with white bg is standard for print/hwp).
   const bg = document.createElementNS(SVG_NS, "rect");

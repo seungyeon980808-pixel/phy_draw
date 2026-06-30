@@ -1,8 +1,8 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm, MIN_TEXT_PT } from "./state.js?v=0.24.0";
-import { openFontModalForSelection } from "./tools.js?v=0.24.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.24.0";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm, MIN_TEXT_PT } from "./state.js?v=0.25.0";
+import { openFontModalForSelection } from "./tools.js?v=0.25.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.25.0";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -208,7 +208,7 @@ export function initInspector(state) {
     state.update((s) => { s.undoStack.push(snap); s.redoStack = []; });
   }
 
-  // (평가원/자유 설정 object-style mode removed in v0.24.0 — objects are always free.)
+  // (평가원/자유 설정 object-style mode removed in v0.25.0 — objects are always free.)
 
   function setButtonDisabled(btn, disabled) {
     btn.disabled = !!disabled;

@@ -17,8 +17,8 @@ import {
   TEXT_STYLES,
   DEFAULT_TEXT_FONT,
   DEFAULT_TEXT_SIZE_MM,
-} from "./state.js?v=0.24.0";
-import { registerTopMenu } from "./top-menu.js?v=0.24.0";
+} from "./state.js?v=0.25.0";
+import { registerTopMenu } from "./top-menu.js?v=0.25.0";
 
 /* ----- defaults schema + localStorage load/save ----- */
 const DEFAULTS_KEY = "phyDraw.defaults";

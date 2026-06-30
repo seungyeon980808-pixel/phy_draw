@@ -1,3 +1,16 @@
+/* ===== SELF-HOSTED DEFAULT FONT: 함초롬바탕 =====
+ * Free for commercial use + web embedding. Latin + Hangul glyphs, so it is the
+ * single default for ALL text and labels (Korean and English). Drop the file at
+ * fonts/HamchoromBatang.woff2 (see fonts/README.txt). Until then text falls back
+ * to the serif in the "HamchoromBatang", serif chain. */
+@font-face {
+  font-family: "HamchoromBatang";
+  src: url("../fonts/HamchoromBatang.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ===== THEME TOKENS (dark = default, light = opt-in via data-theme) ===== */
 :root[data-theme="dark"] {
   --bg-app: #1e1e1e;
