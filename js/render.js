@@ -7,10 +7,10 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.29.0";
-import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.29.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.29.0";
-import { renderFormula } from "./formula.js?v=0.29.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.30.0";
+import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.30.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.30.0";
+import { renderFormula } from "./formula.js?v=0.30.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -2312,17 +2312,25 @@ function renderSnapPreview(scene, zoom) {
   group.setAttribute("id", "snap-preview");
   group.setAttribute("pointer-events", "none");
 
-  const line = document.createElementNS(SVG_NS, "line");
-  line.setAttribute("x1", snapPreview.from.x);
-  line.setAttribute("y1", snapPreview.from.y);
-  line.setAttribute("x2", snapPreview.to.x);
-  line.setAttribute("y2", snapPreview.to.y);
-  line.setAttribute("stroke", "#e03131");
-  line.setAttribute("stroke-width", 1 / scale);
-  line.setAttribute("stroke-dasharray", `${4 / scale} ${3 / scale}`);
-  group.appendChild(line);
+  // SINGLE red-dot indicator: when from and to coincide (endpoint/node attach),
+  // draw ONE dot and no connecting line. Otherwise (body-move pairing preview)
+  // keep the dashed link + a dot at each end.
+  const coincident = Math.hypot(snapPreview.to.x - snapPreview.from.x,
+                                snapPreview.to.y - snapPreview.from.y) < 0.5 / scale;
+  if (!coincident) {
+    const line = document.createElementNS(SVG_NS, "line");
+    line.setAttribute("x1", snapPreview.from.x);
+    line.setAttribute("y1", snapPreview.from.y);
+    line.setAttribute("x2", snapPreview.to.x);
+    line.setAttribute("y2", snapPreview.to.y);
+    line.setAttribute("stroke", "#e03131");
+    line.setAttribute("stroke-width", 1 / scale);
+    line.setAttribute("stroke-dasharray", `${4 / scale} ${3 / scale}`);
+    group.appendChild(line);
+  }
 
-  for (const point of [snapPreview.from, snapPreview.to]) {
+  const dotPoints = coincident ? [snapPreview.to] : [snapPreview.from, snapPreview.to];
+  for (const point of dotPoints) {
     const dot = document.createElementNS(SVG_NS, "circle");
     dot.setAttribute("cx", point.x);
     dot.setAttribute("cy", point.y);

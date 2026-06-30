@@ -13,10 +13,10 @@
 // we can distinguish "click on already-selected ??move allowed" from "click
 // selects a new object ??just select, no move this press."
 
-import { screenToWorld, getRenderScale } from "./viewport.js?v=0.29.0";
-import { resolveSnap, resolveEndpointSnap } from "./snap.js?v=0.29.0";
-import { setSnapPreview } from "./render.js?v=0.29.0";
-import { pickSelectableObjectFromEvent } from "./tools.js?v=0.29.0";
+import { screenToWorld, getRenderScale } from "./viewport.js?v=0.30.0";
+import { resolveSnap, resolveEndpointSnap, resolveRadialCenterSnap } from "./snap.js?v=0.30.0";
+import { setSnapPreview } from "./render.js?v=0.30.0";
+import { pickSelectableObjectFromEvent } from "./tools.js?v=0.30.0";
 
 /* ----- shared lock guard: locked objects are excluded from mutating ops ----- */
 function isMutable(o) { return o && !o.locked; }
@@ -292,6 +292,29 @@ function setHandleEndpointPoint(obj, handle, pt) {
     const i = parseInt(handle.slice(1), 10);
     if (Number.isInteger(i) && obj.points?.[i]) obj.points[i] = next;
   }
+}
+
+/* The FIXED (non-dragged) endpoint of a line/circuit, for the 6c radial-center
+ * test. Only defined for the two-endpoint line family. */
+function otherEndpointPoint(obj, handle) {
+  if (obj.type === "line" || obj.type === "circuit") {
+    return handle === "p0" ? obj.p2 : obj.p1;
+  }
+  return null;
+}
+
+/* Consolidate the endpoint-snap candidates (6b edge/vertex + 6c radial center)
+ * into ONE choice. 6c radial is angularly gated — it only fires when the line is
+ * deliberately aimed at an object's center — so it WINS over the plain edge foot
+ * whenever it attaches (otherwise the perpendicular edge point would beat the
+ * radial point and the line would never go radial). Falls back to the edge/vertex
+ * snap, then to whichever preview is available. */
+function pickEndpointSnap(edgeSnap, radialSnap) {
+  if (radialSnap && radialSnap.attach) return { ...radialSnap, kind: "radial" };
+  if (edgeSnap && edgeSnap.attach) return { ...edgeSnap, kind: "edge" };
+  if (radialSnap) return { ...radialSnap, kind: "radial" };
+  if (edgeSnap) return { ...edgeSnap, kind: "edge" };
+  return null;
 }
 
 const MIN_SIZE = 0.3; // world units; minimum w or h after resize
@@ -1347,13 +1370,21 @@ export function initTransform(svg, state) {
         applyHandleDelta(obj, _handleOrigObj, _handleId, dx, dy, e.shiftKey, e.ctrlKey);
         let preview = null;
         if (e.shiftKey) {
+          // CONSOLIDATED endpoint snap: ONE path resolves both 6b (edge/vertex/
+          // curved-surface) and 6c (radial center) and emits a single red dot.
+          const scale = getRenderScale();
           const dragged = handleEndpointPoint(obj, _handleId);
-          const snap = dragged
-            ? resolveEndpointSnap(dragged, [obj.id], getRenderScale(), state)
+          const edgeSnap = dragged
+            ? resolveEndpointSnap(dragged, [obj.id], scale, state)
             : null;
-          if (snap) {
-            preview = snap.preview;
-            if (snap.attach) setHandleEndpointPoint(obj, _handleId, snap.target);
+          const other = otherEndpointPoint(obj, _handleId);
+          const radialSnap = (dragged && other)
+            ? resolveRadialCenterSnap(other, dragged, [obj.id], scale, state)
+            : null;
+          const chosen = dragged ? pickEndpointSnap(edgeSnap, radialSnap) : null;
+          if (chosen) {
+            preview = chosen.preview;
+            if (chosen.attach) setHandleEndpointPoint(obj, _handleId, chosen.target);
           }
         }
         setSnapPreview(preview);

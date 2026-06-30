@@ -8,7 +8,7 @@
  * line, and polyline objects also contribute finite contact edges.
  */
 
-import { rotPt, singleObjBBox, curveSamplePoints } from "./render.js?v=0.29.0";
+import { rotPt, singleObjBBox, curveSamplePoints } from "./render.js?v=0.30.0";
 
 const ATTACH_PX = 40;
 const PREVIEW_PX = 80;
@@ -271,6 +271,84 @@ function ellipseOutlineNearest(obj, p) {
   const fwd = rot * Math.PI / 180;
   const fc = Math.cos(fwd), fs = Math.sin(fwd);
   return { x: cx + sx * fc - sy * fs, y: cy + sx * fs + sy * fc };
+}
+
+/* ===== 6c: RADIAL CENTER SNAP =====
+ * Boundary point of a circle/ellipse/rect along a unit direction (ux,uy) FROM the
+ * object center (rotation-aware). Used to land a line endpoint on the boundary
+ * collinear with the center so the line aims radially at the center. */
+function boundaryPointInDirection(obj, ux, uy) {
+  const cx = obj.x + obj.w / 2, cy = obj.y + obj.h / 2;
+  const a = Math.abs(obj.w) / 2, b = Math.abs(obj.h) / 2;
+  if (!a || !b) return null;
+  const rot = (obj.rotation || 0) * Math.PI / 180;
+  // direction in the object's local (unrotated) frame
+  const ic = Math.cos(-rot), is = Math.sin(-rot);
+  const lux = ux * ic - uy * is;
+  const luy = ux * is + uy * ic;
+  let lx, ly;
+  if (obj.type === "ellipse") {
+    const denom = Math.hypot(lux / a, luy / b);
+    if (denom === 0) return null;
+    const t = 1 / denom;
+    lx = lux * t; ly = luy * t;
+  } else if (obj.type === "rect") {
+    // ray from center to rect edge: smallest positive t hitting |x|=a or |y|=b
+    const tx = lux !== 0 ? a / Math.abs(lux) : Infinity;
+    const ty = luy !== 0 ? b / Math.abs(luy) : Infinity;
+    const t = Math.min(tx, ty);
+    if (!Number.isFinite(t)) return null;
+    lx = lux * t; ly = luy * t;
+  } else {
+    return null;
+  }
+  // back to world frame
+  const fc = Math.cos(rot), fs = Math.sin(rot);
+  return { x: cx + lx * fc - ly * fs, y: cy + lx * fs + ly * fc };
+}
+
+/* resolveRadialCenterSnap: with Shift, when a dragged line endpoint is near a
+ * circle/ellipse/rect AND the line (from the FIXED other endpoint through the
+ * dragged point) is aimed near the object's center within an angular tolerance,
+ * snap the dragged endpoint onto the boundary at the point COLLINEAR with the
+ * center (near side, facing `other`) so the line becomes radial. Returns
+ * { target, attach, preview } or null. */
+const RADIAL_ANG_TOL = 14 * Math.PI / 180; // angular tolerance (line vs center)
+export function resolveRadialCenterSnap(other, dragged, excludeIds, scale, state) {
+  if (!isValidPoint(other) || !isValidPoint(dragged)) return null;
+  const safeScale = scale > 0 ? scale : 1;
+  const exclude = excludeIds instanceof Set ? excludeIds : new Set(excludeIds || []);
+  const snapshot = state.get();
+  const previewDist = PREVIEW_PX / safeScale;
+  const ldx = dragged.x - other.x, ldy = dragged.y - other.y;
+  const llen = Math.hypot(ldx, ldy);
+  if (llen < 1e-6) return null;
+  const lux = ldx / llen, luy = ldy / llen;
+  let best = null;
+  for (const obj of snapshot.objects) {
+    if (!obj?.id || exclude.has(obj.id) || !isSnapTargetEligible(obj, snapshot)) continue;
+    if (obj.type !== "ellipse" && obj.type !== "rect") continue;
+    const cx = obj.x + obj.w / 2, cy = obj.y + obj.h / 2;
+    // direction from the FIXED other endpoint toward the object center
+    const cdx = cx - other.x, cdy = cy - other.y;
+    const clen = Math.hypot(cdx, cdy);
+    if (clen < 1e-6) continue;
+    const cux = cdx / clen, cuy = cdy / clen;
+    const dot = Math.max(-1, Math.min(1, lux * cux + luy * cuy));
+    if (Math.acos(dot) > RADIAL_ANG_TOL) continue; // line not aimed at center
+    // boundary point on the near side (toward `other`) so the segment stops AT the surface
+    const boundary = boundaryPointInDirection(obj, other.x - cx, other.y - cy);
+    if (!boundary) continue;
+    const dist = Math.hypot(boundary.x - dragged.x, boundary.y - dragged.y);
+    if (dist > previewDist) continue;
+    if (!best || dist < best.dist) best = { point: boundary, dist };
+  }
+  if (!best) return null;
+  return {
+    target: best.point,
+    attach: best.dist <= ATTACH_PX / safeScale,
+    preview: { from: best.point, to: best.point },
+  };
 }
 
 /* Source endpoints of a moving line-like object (whole-object drag, Case B). */

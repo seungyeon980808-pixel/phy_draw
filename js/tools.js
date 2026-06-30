@@ -11,17 +11,17 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.29.0";
+import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.30.0";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt, MIN_TEXT_PT,
-} from "./state.js?v=0.29.0";
+} from "./state.js?v=0.30.0";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.29.0";
-import { resolveEndpointSnap } from "./snap.js?v=0.29.0";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.29.0";
-import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.29.0";
+import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.30.0";
+import { resolveEndpointSnap } from "./snap.js?v=0.30.0";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.30.0";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.30.0";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -84,6 +84,7 @@ export function initTools(svg, state) {
   setupDrawing();
   setupClickDrawing();
   setupFreeDraw();
+  setupNodePlacement();
   setupTextTool();
   setupTextClickToEdit();
   setupTextEditShortcuts();
@@ -339,6 +340,9 @@ function setupDrawing() {
     if (spaceHeld) return;                       // Space+left = pan, not draw
     const type = SHAPE_TYPE[_state.get().activeTool];
     if (!type) return;                           // only a shape tool draws
+    // 6a: node (점) is placed by a single CLICK (atomic), not a size-drag — the
+    // dedicated setupNodePlacement() click handler owns it, so skip the drag flow.
+    if (type === "optics" && _opticsKind === "node") return;
     e.preventDefault();
 
     const vb = _state.get().viewBox;
@@ -648,6 +652,72 @@ function setupFreeDraw() {
       s.selectedIds = [obj.id];
       s.activeTool = "V"; // auto-return to select right after drawing (DESIGN 4-3)
     });
+  });
+}
+
+/* ===== 6a: NODE (점) SINGLE-CLICK PLACEMENT =====
+ * The node tool creates a default-size 점 on ONE click (atomic, not a drag).
+ * With Shift held it snaps to the nearest straight edge/line OR object boundary
+ * outline (rect/triangle edges, ellipse/circle/curve surfaces) via the SAME
+ * shared resolveEndpointSnap path the line-endpoint snap uses; a single red dot
+ * marks the snapped point and the click commits there. */
+const NODE_DEFAULT_SIZE = 16; // world mm (matches templates.js node default)
+function isNodeToolArmed() {
+  return _state.get().activeTool === "OPTICS" && _opticsKind === "node";
+}
+function nodePlacementPoint(rawWorld, shiftHeld) {
+  if (!shiftHeld) return { place: rawWorld, snapped: false };
+  const snap = resolveEndpointSnap(rawWorld, [], getRenderScale(), _state);
+  if (snap && snap.attach) return { place: snap.target, snapped: true };
+  return { place: rawWorld, snapped: false };
+}
+let _nodePreviewActive = false; // a red dot is currently shown for node placement
+function setupNodePlacement() {
+  const clearNodePreview = () => {
+    if (!_nodePreviewActive) return;
+    _nodePreviewActive = false;
+    setSnapPreview(null);
+    _state.update(() => {});
+  };
+  // Hover preview: a single red dot at the snapped point while Shift is held.
+  _svg.addEventListener("pointermove", (e) => {
+    if (!isNodeToolArmed() || spaceHeld || !e.shiftKey) { clearNodePreview(); return; }
+    const raw = screenToWorld(_svg, _state.get().viewBox, e.clientX, e.clientY);
+    const { place, snapped } = nodePlacementPoint(raw, true);
+    if (!snapped) { clearNodePreview(); return; }
+    setSnapPreview({ from: place, to: place });
+    _nodePreviewActive = true;
+    _state.update(() => {}); // repaint so the red dot follows the cursor
+  });
+
+  // Click commits a node at the (snapped) point.
+  _svg.addEventListener("click", (e) => {
+    if (e.button !== 0 || spaceHeld) return;
+    if (!isNodeToolArmed()) return;
+    const raw = screenToWorld(_svg, _state.get().viewBox, e.clientX, e.clientY);
+    const { place, snapped } = nodePlacementPoint(raw, e.shiftKey);
+    console.log("[SNAP-6a node-place commit] snapped=", snapped,
+      "at=", `${place.x.toFixed(1)},${place.y.toFixed(1)}`);
+    const sz = NODE_DEFAULT_SIZE;
+    _state.update((s) => {
+      const snap = JSON.parse(JSON.stringify(s.objects));
+      const obj = {
+        id: `obj_${Date.now().toString(36)}_${++_idCounter}`,
+        type: "optics", kind: "node",
+        x: place.x - sz / 2, y: place.y - sz / 2, w: sz, h: sz,
+        rotation: 0, strokeLevel: 0, strokeWidth: 0.3,
+        fillLevel: 255, fillNone: true,
+        label: "", showLabel: false, labelPos: "above",
+        dashLength: 0, dashGap: 0, locked: false, positionLocked: false,
+        layerId: s.activeLayerId, order: s.objects.length,
+      };
+      s.objects.push(obj);
+      s.undoStack.push(snap);
+      s.redoStack = [];
+      s.selectedIds = [obj.id];
+      s.activeTool = "V"; // auto-return to select after placing
+    });
+    setSnapPreview(null);
   });
 }
 
