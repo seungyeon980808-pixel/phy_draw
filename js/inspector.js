@@ -1,8 +1,8 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm, MIN_TEXT_PT } from "./state.js?v=0.26.0";
-import { openFontModalForSelection } from "./tools.js?v=0.26.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.26.0";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm, MIN_TEXT_PT } from "./state.js?v=0.27.0";
+import { openFontModalForSelection } from "./tools.js?v=0.27.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.27.0";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -208,7 +208,7 @@ export function initInspector(state) {
     state.update((s) => { s.undoStack.push(snap); s.redoStack = []; });
   }
 
-  // (평가원/자유 설정 object-style mode removed in v0.26.0 — objects are always free.)
+  // (평가원/자유 설정 object-style mode removed in v0.22.0 — objects are always free.)
 
   function setButtonDisabled(btn, disabled) {
     btn.disabled = !!disabled;
@@ -404,6 +404,61 @@ export function initInspector(state) {
   dimensionLabelRow.appendChild(dimensionLabelLbl);
   dimensionLabelRow.appendChild(dimensionLabelInp);
   sec1Body.appendChild(dimensionLabelRow);
+
+  /* ---- straight-line upright label (Group 3): text input + on/off toggle ----
+   * Writes obj.label / obj.labelShow. When on, render.js (withLineLabel) draws
+   * the text screen-upright, centered above the line midpoint, default font. */
+  const lineLabelRow = document.createElement("div");
+  lineLabelRow.className = "insp-row";
+  const lineLabelLbl = document.createElement("label");
+  lineLabelLbl.className = "insp-field-label";
+  lineLabelLbl.textContent = "라벨";
+  const lineLabelInp = document.createElement("input");
+  lineLabelInp.type = "text";
+  lineLabelInp.maxLength = 60;
+  lineLabelInp.style.cssText = "width:90px;font-size:11px;border:1px solid #3a3c41;border-radius:3px;padding:3px 5px;background:#1e1f22;color:#dcddde;";
+  lineLabelInp.addEventListener("change", () => {
+    const s = state.get();
+    const id = (s.selectedIds || [])[0];
+    const snap = JSON.parse(JSON.stringify(s.objects));
+    state.update((s2) => {
+      const o = s2.objects.find((item) => item.id === id);
+      if (!o || o.type !== "line" || o.locked) return;
+      if ((o.label ?? "") === lineLabelInp.value) return; // no-op → no undo entry
+      o.label = lineLabelInp.value;
+      s2.undoStack.push(snap);
+      s2.redoStack = [];
+    });
+  });
+  lineLabelRow.appendChild(lineLabelLbl);
+  lineLabelRow.appendChild(lineLabelInp);
+  sec1Body.appendChild(lineLabelRow);
+
+  const lineLabelShowRow = document.createElement("div");
+  lineLabelShowRow.className = "insp-row";
+  const lineLabelShowCb = document.createElement("input");
+  lineLabelShowCb.type = "checkbox";
+  lineLabelShowCb.className = "insp-cb";
+  const lineLabelShowLbl = document.createElement("label");
+  lineLabelShowLbl.className = "insp-field-label";
+  lineLabelShowLbl.textContent = "라벨 표시";
+  lineLabelShowRow.appendChild(lineLabelShowCb);
+  lineLabelShowRow.appendChild(lineLabelShowLbl);
+  sec1Body.appendChild(lineLabelShowRow);
+  lineLabelShowCb.addEventListener("change", () => {
+    const s = state.get();
+    const id = (s.selectedIds || [])[0];
+    if (!id) return;
+    const snap = JSON.parse(JSON.stringify(s.objects));
+    const val = lineLabelShowCb.checked;
+    state.update((s2) => {
+      const o = s2.objects.find((item) => item.id === id);
+      if (!o || o.type !== "line" || o.locked) return;
+      o.labelShow = val;
+      s2.undoStack.push(snap);
+      s2.redoStack = [];
+    });
+  });
 
   // ---- Dash presets + length/gap sliders (line/polyline/curve) ----
   const dashRow = document.createElement("div");
@@ -1315,6 +1370,64 @@ export function initInspector(state) {
     });
   });
 
+  /* ---- rect/ellipse upright label (Group 3): text input + position dropdown ----
+   * Writes obj.label / obj.labelPos. The label renders screen-upright, excluded
+   * from rotation, in the default font (see render.js withBoxLabel). */
+  const boxLabelRow = document.createElement("div");
+  boxLabelRow.className = "insp-row";
+  const boxLabelLbl = document.createElement("label");
+  boxLabelLbl.className = "insp-field-label";
+  boxLabelLbl.textContent = "라벨";
+  const boxLabelInp = document.createElement("input");
+  boxLabelInp.type = "text";
+  boxLabelInp.maxLength = 60;
+  boxLabelInp.className = "insp-input";
+  function commitBoxLabel() {
+    const s = state.get();
+    if (!(s.selectedIds || []).length) return;
+    const snap = JSON.parse(JSON.stringify(s.objects));
+    state.update((s2) => {
+      const o = s2.objects.find((o) => o.id === (s2.selectedIds || [])[0]);
+      if (!o || o.locked) return;
+      if ((o.label ?? "") === boxLabelInp.value) return; // no-op → no undo entry
+      s2.undoStack.push(snap); s2.redoStack = [];
+      o.label = boxLabelInp.value;
+    });
+  }
+  boxLabelInp.addEventListener("keydown", (e) => { if (e.key === "Enter") boxLabelInp.blur(); });
+  boxLabelInp.addEventListener("blur", commitBoxLabel);
+  boxLabelRow.appendChild(boxLabelLbl);
+  boxLabelRow.appendChild(boxLabelInp);
+  sec3Body.appendChild(boxLabelRow);
+
+  const boxLabelPosRow = document.createElement("div");
+  boxLabelPosRow.className = "insp-row";
+  const boxLabelPosLbl = document.createElement("label");
+  boxLabelPosLbl.className = "insp-field-label";
+  boxLabelPosLbl.textContent = "라벨 위치";
+  const boxLabelPosSel = document.createElement("select");
+  boxLabelPosSel.className = "insp-input";
+  [["center", "가운데"], ["above", "위"], ["below", "아래"]].forEach(([val, text]) => {
+    const opt = document.createElement("option");
+    opt.value = val; opt.textContent = text;
+    boxLabelPosSel.appendChild(opt);
+  });
+  boxLabelPosRow.appendChild(boxLabelPosLbl);
+  boxLabelPosRow.appendChild(boxLabelPosSel);
+  sec3Body.appendChild(boxLabelPosRow);
+  boxLabelPosSel.addEventListener("change", () => {
+    const s = state.get();
+    if (!(s.selectedIds || []).length) return;
+    const snap = JSON.parse(JSON.stringify(s.objects));
+    const val = ["center", "above", "below"].includes(boxLabelPosSel.value) ? boxLabelPosSel.value : "center";
+    state.update((s2) => {
+      const o = s2.objects.find((o) => o.id === (s2.selectedIds || [])[0]);
+      if (!o || o.locked) return;
+      s2.undoStack.push(snap); s2.redoStack = [];
+      o.labelPos = val;
+    });
+  });
+
   // capacitor-only: plate separation 간격 (world mm).
   const gapRow = document.createElement("div");
   gapRow.className = "insp-row";
@@ -1949,6 +2062,12 @@ export function initInspector(state) {
     abSection.style.display = "none"; // hidden whenever something is selected
     groupBtnDiv.style.display = "none"; // shown only for an ungrouped multi-selection
     secText.style.display = "none"; // shown only for a single text object (set below)
+    // Group-3 upright-label rows: shown only for a single rect/ellipse (box) or
+    // line (set in the single-selection branch); hidden in every other case.
+    boxLabelRow.style.display = "none";
+    boxLabelPosRow.style.display = "none";
+    lineLabelRow.style.display = "none";
+    lineLabelShowRow.style.display = "none";
 
     // Targeted state: only show ungroup button, hide everything else
     if (s.targetedId) {
@@ -2202,6 +2321,14 @@ export function initInspector(state) {
     dimensionLabelRow.style.display = isStraightLine && lineMode === "lengthArrow" ? "" : "none";
     if (document.activeElement !== dimensionLabelInp) dimensionLabelInp.value = obj.dimensionLabel ?? "d";
 
+    // Group-3 straight-line upright label: text + on/off toggle.
+    lineLabelRow.style.display = isStraightLine ? "" : "none";
+    lineLabelShowRow.style.display = isStraightLine ? "" : "none";
+    if (isStraightLine) {
+      if (document.activeElement !== lineLabelInp) lineLabelInp.value = obj.label ?? "";
+      lineLabelShowCb.checked = obj.labelShow === true;
+    }
+
     // Arrow head: open line + open polyline (closed polyline = filled shape, no arrow).
     const showArrow = obj.type === "polyline" && !isClosedPoly;
     arrowRow.style.display = showArrow ? "" : "none";
@@ -2277,6 +2404,15 @@ export function initInspector(state) {
     // node uses a label-position dropdown instead of the show/hide toggle.
     showLabelRow.style.display = (isOptics && !isNode) ? "" : "none";
     labelPosRow.style.display = isNode ? "" : "none";
+
+    // Group-3 box upright label: rect/ellipse only (text + center/above/below).
+    const isBoxLabelType = obj.type === "rect" || obj.type === "ellipse";
+    boxLabelRow.style.display = isBoxLabelType ? "" : "none";
+    boxLabelPosRow.style.display = isBoxLabelType ? "" : "none";
+    if (isBoxLabelType) {
+      if (document.activeElement !== boxLabelInp) boxLabelInp.value = obj.label ?? "";
+      boxLabelPosSel.value = ["center", "above", "below"].includes(obj.labelPos) ? obj.labelPos : "center";
+    }
     gapRow.style.display = isCap ? "" : "none";
     circuitHeightF.el.style.display = hasCircuitHeight ? "" : "none";
     term1.el.style.display = isDiode ? "" : "none";
@@ -2367,6 +2503,10 @@ export function initInspector(state) {
     labelInp.disabled = !!obj.locked;
     showLabelCb.disabled = !!obj.locked;
     labelPosSel.disabled = !!obj.locked;
+    boxLabelInp.disabled = !!obj.locked;
+    boxLabelPosSel.disabled = !!obj.locked;
+    lineLabelInp.disabled = !!obj.locked;
+    lineLabelShowCb.disabled = !!obj.locked;
     gapInp.disabled = !!obj.locked;
     circuitHeightF.inp.disabled = !!obj.locked;
     term1.inp.disabled = !!obj.locked;

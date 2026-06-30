@@ -1,6 +1,6 @@
 /* ===== OBJECT STYLE (free styling only) =====
 //
-// The legacy "평가원 형태 / 자유 설정" object mode was removed in v0.26.0. Objects
+// The legacy "평가원 형태 / 자유 설정" object mode was removed in v0.22.0. Objects
 // no longer carry a styleMode field and never have 수능형 비율/스타일 auto-applied —
 // every object is styled purely from its own properties ("자유 설정").
 //

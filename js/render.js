@@ -7,10 +7,10 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.26.0";
-import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.26.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.26.0";
-import { renderFormula } from "./formula.js?v=0.26.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.27.0";
+import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.27.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.27.0";
+import { renderFormula } from "./formula.js?v=0.27.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -673,6 +673,55 @@ export function renderObject(obj) {
   }
 }
 
+/* ===== SHARED UPRIGHT LABEL (Group 3) =====
+ * A custom text label that always renders horizontally (screen-upright),
+ * EXCLUDED from the object's rotation (the caller appends it as a sibling of the
+ * rotated shape, never inside the rotation group), in the default font, and IS
+ * included in export (it lives in renderObject's output). Returns an SVG <text>
+ * node, or null when there's no label text. */
+const LABEL_GAP_MM = DEFAULT_TEXT_SIZE_MM * 0.85;
+function makeUprightLabel(text, x, y, color) {
+  const s = String(text ?? "");
+  if (!s) return null;
+  const t = document.createElementNS(SVG_NS, "text");
+  t.setAttribute("x", x);
+  t.setAttribute("y", y);
+  t.setAttribute("font-size", DEFAULT_TEXT_SIZE_MM);
+  t.setAttribute("font-family", DEFAULT_TEXT_FONT);
+  t.setAttribute("fill", color);
+  t.setAttribute("text-anchor", "middle");
+  t.setAttribute("dominant-baseline", "central");
+  // White halo so the label stays readable over strokes/fills (mirrors the
+  // line length-display label).
+  t.setAttribute("paint-order", "stroke");
+  t.setAttribute("stroke", "white");
+  t.setAttribute("stroke-width", DEFAULT_TEXT_SIZE_MM * 0.16);
+  t.setAttribute("stroke-linejoin", "round");
+  t.textContent = s;
+  return t;
+}
+
+/* Attach a box-shape's (rect/ellipse) upright label, if any. The anchor is
+ * computed in the UNROTATED bbox frame so the text stays horizontal regardless
+ * of obj.rotation. labelPos: "center" | "above" | "below" (default center).
+ * When a label exists the shape is wrapped in a <g> that carries the data-id;
+ * with no label the bare shape element is returned unchanged. */
+function withBoxLabel(shapeEl, obj) {
+  const pos = obj.labelPos || "center";
+  const cx = obj.x + obj.w / 2;
+  let ly;
+  if (pos === "above")      ly = obj.y - LABEL_GAP_MM;
+  else if (pos === "below") ly = obj.y + obj.h + LABEL_GAP_MM;
+  else                      ly = obj.y + obj.h / 2; // center
+  const lbl = makeUprightLabel(obj.label, cx, ly, grayHex(obj.strokeLevel));
+  if (!lbl) return shapeEl;
+  const g = document.createElementNS(SVG_NS, "g");
+  if (obj.id) { g.dataset.id = obj.id; delete shapeEl.dataset.id; }
+  g.appendChild(shapeEl);
+  g.appendChild(lbl);
+  return g;
+}
+
 /* ----- rect: size-based shape (DESIGN 2-1 branch A) ----- */
 function renderRect(obj) {
   const r = document.createElementNS(SVG_NS, "rect");
@@ -694,7 +743,7 @@ function renderRect(obj) {
     r.setAttribute("transform", `rotate(${obj.rotation} ${cx} ${cy})`);
   }
   if (obj.id) r.dataset.id = obj.id;
-  return r;
+  return withBoxLabel(r, obj);
 }
 
 /* ----- ellipse: size-based shape; bbox (x/y/w/h) ??cx/cy + rx/ry ----- */
@@ -717,7 +766,7 @@ function renderEllipse(obj) {
     el.setAttribute("transform", `rotate(${obj.rotation} ${cx} ${cy})`);
   }
   if (obj.id) el.dataset.id = obj.id;
-  return el;
+  return withBoxLabel(el, obj);
 }
 
 /* ----- triangle: right-angle corner determined by flipX 횞 flipY ----- */
@@ -894,12 +943,12 @@ function renderLine(obj) {
   if (lineStyle === "solid" || L === 0) {
     if (bodyEls.length === 1) {
       if (obj.id) bodyEls[0].dataset.id = obj.id;
-      return bodyEls[0];
+      return withLineLabel(bodyEls[0], obj);
     }
     const gSolid = document.createElementNS(SVG_NS, "g");
     if (obj.id) gSolid.dataset.id = obj.id;
     bodyEls.forEach((b) => gSolid.appendChild(b));
-    return gSolid;
+    return withLineLabel(gSolid, obj);
   }
 
   const g = document.createElementNS(SVG_NS, "g");
@@ -957,6 +1006,24 @@ function renderLine(obj) {
     g.appendChild(label);
   }
 
+  return withLineLabel(g, obj);
+}
+
+/* Attach a line's optional upright label (Group 3): when labelShow is on and
+ * label text is non-empty, render it screen-upright, centered ABOVE the line
+ * midpoint (mirrors the length-display styling, custom text, lifted above). The
+ * line is drawn in absolute p1→p2 coords (no rotation group), so the label is
+ * naturally upright. Wraps the body in a <g> carrying the data-id. */
+function withLineLabel(bodyEl, obj) {
+  if (!(obj.labelShow && String(obj.label ?? ""))) return bodyEl;
+  const mx = (obj.p1.x + obj.p2.x) / 2;
+  const my = (obj.p1.y + obj.p2.y) / 2;
+  const lbl = makeUprightLabel(obj.label, mx, my - DEFAULT_TEXT_SIZE_MM, grayHex(obj.strokeLevel));
+  if (!lbl) return bodyEl;
+  const g = document.createElementNS(SVG_NS, "g");
+  if (obj.id) { g.dataset.id = obj.id; if (bodyEl.dataset) delete bodyEl.dataset.id; }
+  g.appendChild(bodyEl);
+  g.appendChild(lbl);
   return g;
 }
 
