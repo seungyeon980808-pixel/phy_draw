@@ -1,8 +1,8 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, mmToPt, ptToMm, MIN_TEXT_PT } from "./state.js?v=0.31.1";
-import { openFontModalForSelection } from "./tools.js?v=0.31.1";
-import { resolveObjectStyle } from "./style-mode.js?v=0.31.1";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, mmToPt, ptToMm, MIN_TEXT_PT } from "./state.js?v=0.32.0";
+import { openFontModalForSelection } from "./tools.js?v=0.32.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.32.0";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -167,6 +167,7 @@ export function initInspector(state) {
   const emptyEl   = document.getElementById("inspector-empty");
   const contentEl = document.getElementById("inspector-content");
   if (!emptyEl || !contentEl) return;
+  const LABELER_PRESETS = ["㉠", "㉡", "㉢", "㉣", "㉤"];
 
   /* ----- shared 라벨 크기 row builder (Group 6 task 6) -----
    * A "라벨 크기" number input in points; stores obj.labelSize in world mm.
@@ -1447,6 +1448,41 @@ export function initInspector(state) {
     });
   });
 
+  // labeler-only: preset circled Korean letters. Stored separately as obj.text
+  // so this remains its own schema, independent of shape/line obj.label fields.
+  const labelerTextRow = document.createElement("div");
+  labelerTextRow.className = "insp-row";
+  const labelerTextLbl = document.createElement("label");
+  labelerTextLbl.className = "insp-field-label";
+  labelerTextLbl.textContent = "이름";
+  const labelerTextSel = document.createElement("select");
+  labelerTextSel.className = "insp-input";
+  LABELER_PRESETS.forEach((preset) => {
+    const opt = document.createElement("option");
+    opt.value = preset;
+    opt.textContent = preset;
+    labelerTextSel.appendChild(opt);
+  });
+  labelerTextRow.appendChild(labelerTextLbl);
+  labelerTextRow.appendChild(labelerTextSel);
+  sec3Body.appendChild(labelerTextRow);
+  labelerTextSel.addEventListener("change", () => {
+    const s = state.get();
+    if (!(s.selectedIds || []).length) return;
+    const snap = JSON.parse(JSON.stringify(s.objects));
+    const val = LABELER_PRESETS.includes(labelerTextSel.value) ? labelerTextSel.value : "㉠";
+    state.update((s2) => {
+      const o = s2.objects.find((it) => it.id === (s2.selectedIds || [])[0]);
+      if (!o || o.type !== "labeler" || o.locked) return;
+      if ((o.text ?? "㉠") === val) return;
+      o.text = val;
+      s2.undoStack.push(snap);
+      s2.redoStack = [];
+    });
+  });
+  const labelerSizeRow = makeLabelSizeRow((o) => o.type === "labeler");
+  sec3Body.appendChild(labelerSizeRow.row);
+
   /* ---- rect/ellipse upright label (Group 3): text input + position dropdown ----
    * Writes obj.label / obj.labelPos. The label renders screen-upright, excluded
    * from rotation, in the default font (see render.js withBoxLabel). */
@@ -2464,6 +2500,7 @@ export function initInspector(state) {
     const isArc = obj.type === "anglearc";
     const isRightAngle = obj.type === "rightangle";
     const isCircuit = obj.type === "circuit";
+    const isLabeler = obj.type === "labeler";
     // Circuit element variants: capacitor adds 간격; diode swaps the single 라벨 for
     // two terminal labels. Everything else uses the single 라벨 row.
     const circElem = isCircuit ? obj.element : null;
@@ -2472,12 +2509,12 @@ export function initInspector(state) {
     const hasCircuitHeight = isCircuit && CIRCUIT_HEIGHT_ELEMENTS.has(circElem);
     const isAxes = obj.type === "axes";
     const axisVariant = isAxes ? (obj.axisVariant || "cross") : null;
-    sec3.style.display = (isShape || isArc || isRightAngle || isCircuit) ? "" : "none";
+    sec3.style.display = (isShape || isArc || isRightAngle || isCircuit || isLabeler) ? "" : "none";
     // Toggle which rows belong to this selection: arc swaps W/H + rotation for
     // radius + start/sweep angle; circuit (two terminals) hides the box rows.
-    xyPair.style.display  = isCircuit ? "none" : "flex";
-    whPair.style.display  = (isArc || isRightAngle || isCircuit) ? "none" : "flex";
-    rotF.el.style.display = (isArc || isRightAngle || isCircuit) ? "none" : "";
+    xyPair.style.display  = (isCircuit || isLabeler) ? "none" : "flex";
+    whPair.style.display  = (isArc || isRightAngle || isCircuit || isLabeler) ? "none" : "flex";
+    rotF.el.style.display = (isArc || isRightAngle || isCircuit || isLabeler) ? "none" : "";
     radF.el.style.display = isArc ? "" : "none";
     arcPair.style.display = isArc ? "flex" : "none";
     raSizeF.el.style.display = isRightAngle ? "" : "none";
@@ -2496,6 +2533,15 @@ export function initInspector(state) {
     // node uses a label-position dropdown instead of the show/hide toggle.
     showLabelRow.style.display = (isOptics && !isNode) ? "" : "none";
     labelPosRow.style.display = isNode ? "" : "none";
+    labelerTextRow.style.display = isLabeler ? "" : "none";
+    labelerSizeRow.row.style.display = isLabeler ? "" : "none";
+    if (isLabeler) {
+      const text = LABELER_PRESETS.includes(obj.text) ? obj.text : "㉠";
+      labelerTextSel.value = text;
+      if (document.activeElement !== labelerSizeRow.num) {
+        labelerSizeRow.num.value = Math.round(mmToPt(obj.labelSize || DEFAULT_TEXT_SIZE_MM));
+      }
+    }
 
     // Group-3 box upright label: rect/ellipse only (text + center/above/below).
     const isBoxLabelType = obj.type === "rect" || obj.type === "ellipse";
@@ -2597,6 +2643,7 @@ export function initInspector(state) {
     saF.inp.disabled = !!obj.locked;
     swF.inp.disabled = !!obj.locked;
     labelInp.disabled = !!obj.locked;
+    labelerTextSel.disabled = !!obj.locked;
     showLabelCb.disabled = !!obj.locked;
     labelPosSel.disabled = !!obj.locked;
     boxLabelInp.disabled = !!obj.locked;

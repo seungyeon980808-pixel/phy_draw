@@ -21,10 +21,10 @@
 //               geometry on canvas drag/click via makeShape()/makeCircuit()/the ARC
 //               tool. The registry only names which tool + variant to arm.
 
-import { state } from "./state.js?v=0.31.1";
-import { armSymbol } from "./tools.js?v=0.31.1";
-import { renderObject } from "./render.js?v=0.31.1";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.31.1";
+import { state } from "./state.js?v=0.32.0";
+import { armSymbol } from "./tools.js?v=0.32.0";
+import { renderObject } from "./render.js?v=0.32.0";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.32.0";
 
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm) — matches tools.js shapes
 
@@ -115,6 +115,17 @@ export const TEMPLATES = {
         positionLocked: false,
       };
     },
+  },
+
+  /* LABELER — shape (arms the two-click LABELER tool in tools.js). Click 1 =
+   * leader-line start (on/near the graph), click 2 = label position. Draws a short
+   * leader with a small end-gap, then an upright label (circled-letter presets). */
+  labeler: {
+    kind: "shape",
+    category: "공통",
+    label: "라벨러",
+    keywords: ["라벨", "이름", "지시선", "label", "leader", "callout", "ㄱㄴㄷ", "보기"],
+    create: { tool: "LABELER" },
   },
 
   wire: { kind: "shape", category: "전자기학", label: "도선", keywords: ["도선", "전선", "wire", "conductor"], create: { tool: "APPARATUS", kind: "wire" } },
@@ -313,6 +324,16 @@ export function buildSymbolIcon(id, def = TEMPLATES[id]) {
       '<path d="M4 16 L4 5 M4 16 L15 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>' +
       '<path d="M8 16 A4 4 0 0 0 4 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>' +
       '<text x="8.8" y="12.8" font-size="6" font-family="serif" fill="currentColor">θ</text>';
+    return svg;
+  }
+
+  if (id === "labeler") {
+    // A short leader line from a graph anchor up to an upright circled letter.
+    svg.setAttribute("viewBox", "0 0 20 20");
+    svg.innerHTML =
+      '<path d="M3 17 L10 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>' +
+      '<circle cx="3" cy="17" r="1.4" fill="currentColor"/>' +
+      '<text x="13.5" y="8.5" font-size="9" font-family="serif" text-anchor="middle" dominant-baseline="middle" fill="currentColor">㉠</text>';
     return svg;
   }
 

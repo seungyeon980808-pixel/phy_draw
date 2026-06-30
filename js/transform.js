@@ -13,10 +13,10 @@
 // we can distinguish "click on already-selected ??move allowed" from "click
 // selects a new object ??just select, no move this press."
 
-import { screenToWorld, getRenderScale } from "./viewport.js?v=0.31.1";
-import { resolveSnap, resolveEndpointSnap, resolveRadialCenterSnap } from "./snap.js?v=0.31.1";
-import { setSnapPreview } from "./render.js?v=0.31.1";
-import { pickSelectableObjectFromEvent } from "./tools.js?v=0.31.1";
+import { screenToWorld, getRenderScale } from "./viewport.js?v=0.32.0";
+import { resolveSnap, resolveEndpointSnap, resolveRadialCenterSnap } from "./snap.js?v=0.32.0";
+import { setSnapPreview } from "./render.js?v=0.32.0";
+import { pickSelectableObjectFromEvent } from "./tools.js?v=0.32.0";
 
 /* ----- shared lock guard: locked objects are excluded from mutating ops ----- */
 function isMutable(o) { return o && !o.locked; }
@@ -240,7 +240,7 @@ function clipboardBBox(objs) {
       acc(o.x - r, o.y - r); acc(o.x + r, o.y + r);
     } else if (o.type === "text" || o.type === "formula") {
       acc(o.x, o.y);
-    } else if (o.type === "line" || o.type === "circuit") {
+    } else if (o.type === "line" || o.type === "circuit" || o.type === "labeler") {
       acc(o.p1.x, o.p1.y); acc(o.p2.x, o.p2.y);
     } else if (o.type === "polyline" || o.type === "curve") {
       (o.points || []).forEach((p) => acc(p.x, p.y));
@@ -260,8 +260,8 @@ function applyDelta(obj, orig, dx, dy) {
     // anglearc moves by its vertex (x,y); radius/angles are unaffected.
     obj.x = orig.x + dx;
     obj.y = orig.y + dy;
-  } else if (obj.type === "line" || obj.type === "circuit") {
-    // Circuit moves by translating BOTH terminals; the body stays centered (derived).
+  } else if (obj.type === "line" || obj.type === "circuit" || obj.type === "labeler") {
+    // Circuit/labeler move by translating BOTH endpoints (labeler: anchor + label).
     obj.p1 = { x: orig.p1.x + dx, y: orig.p1.y + dy };
     obj.p2 = { x: orig.p2.x + dx, y: orig.p2.y + dy };
   } else if (obj.type === "polyline" || obj.type === "curve") {
@@ -271,7 +271,7 @@ function applyDelta(obj, orig, dx, dy) {
 
 /* ----- line-like endpoint handle <-> point bridge (for endpoint-priority snap) ----- */
 function handleEndpointPoint(obj, handle) {
-  if (obj.type === "line" || obj.type === "circuit") {
+  if (obj.type === "line" || obj.type === "circuit" || obj.type === "labeler") {
     return handle === "p0" ? obj.p1 : obj.p2;
   }
   if ((obj.type === "polyline" || obj.type === "curve")
@@ -284,7 +284,7 @@ function handleEndpointPoint(obj, handle) {
 
 function setHandleEndpointPoint(obj, handle, pt) {
   const next = { x: pt.x, y: pt.y };
-  if (obj.type === "line" || obj.type === "circuit") {
+  if (obj.type === "line" || obj.type === "circuit" || obj.type === "labeler") {
     if (handle === "p0") obj.p1 = next; else obj.p2 = next;
     return;
   }
@@ -321,7 +321,7 @@ const MIN_SIZE = 0.3; // world units; minimum w or h after resize
 
 /* ----- apply one handle drag delta to an object ----- */
 function objectCenter(obj) {
-  if (obj.type === "line" || obj.type === "circuit") {
+  if (obj.type === "line" || obj.type === "circuit" || obj.type === "labeler") {
     return { x: (obj.p1.x + obj.p2.x) / 2, y: (obj.p1.y + obj.p2.y) / 2 };
   }
   if (obj.type === "polyline" || obj.type === "curve") return polyCenter(obj.points);
@@ -616,7 +616,7 @@ function applyGroupResize(objs, origObjs, box0, handle, dx, dy) {
       const p = mapPt(orig.x, orig.y);
       obj.x = p.x; obj.y = p.y;
       obj.fontSize = orig.fontSize * sx; // sx == sy under forced ratio
-    } else if (orig.type === "line") {
+    } else if (orig.type === "line" || orig.type === "circuit" || orig.type === "labeler") {
       obj.p1 = mapPt(orig.p1.x, orig.p1.y);
       obj.p2 = mapPt(orig.p2.x, orig.p2.y);
     } else if (orig.type === "polyline" || orig.type === "curve") {
@@ -1317,7 +1317,7 @@ export function initTransform(svg, state) {
           const memberRot = orig.positionLocked
             ? (x, y) => rotPt(x, y, memberCenter.x, memberCenter.y, deltaDeg)
             : rot;
-          if (orig.type === "line") {
+          if (orig.type === "line" || orig.type === "circuit" || orig.type === "labeler") {
             obj.p1 = memberRot(orig.p1.x, orig.p1.y);
             obj.p2 = memberRot(orig.p2.x, orig.p2.y);
           } else if (orig.type === "polyline" || orig.type === "curve") {

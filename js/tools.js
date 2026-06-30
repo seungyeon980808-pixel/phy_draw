@@ -11,17 +11,17 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.31.1";
+import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.32.0";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt, MIN_TEXT_PT,
-} from "./state.js?v=0.31.1";
+} from "./state.js?v=0.32.0";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.31.1";
-import { resolveEndpointSnap } from "./snap.js?v=0.31.1";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.31.1";
-import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.31.1";
+import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.32.0";
+import { resolveEndpointSnap } from "./snap.js?v=0.32.0";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.32.0";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.32.0";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -72,7 +72,7 @@ let _activeSymbolId = null;
 // Tools that a library symbol arms (vs. the plain V/R/O/... drawing tools). While
 // one of these is active, _activeSymbolId names WHICH symbol armed it; any other
 // tool (incl. auto-return to V after a commit) means no symbol is armed.
-const SYMBOL_TOOLS = new Set(["CIRCUIT", "OPTICS", "ARC", "APPARATUS", "RIGHTANGLE"]);
+const SYMBOL_TOOLS = new Set(["CIRCUIT", "OPTICS", "ARC", "APPARATUS", "RIGHTANGLE", "LABELER"]);
 
 /* ----- public: wire buttons, keyboard, and the drawing gestures ----- */
 export function initTools(svg, state) {
@@ -735,6 +735,7 @@ function setupClickDrawing() {
     const tool = _state.get().activeTool;
     if (tool === "ARC") { handleArcClick(e); return; }
     if (tool === "RIGHTANGLE") { handleRightAngleClick(e); return; }
+    if (tool === "LABELER") { handleLabelerClick(e); return; }
     if (!CLICK_TOOLS[tool]) return;               // only L / P place points
     const vb = _state.get().viewBox;
     let cur = screenToWorld(_svg, vb, e.clientX, e.clientY);
@@ -765,7 +766,7 @@ function setupClickDrawing() {
     // arc), sharing snapAngle with the commit path so preview and commit never diverge.
     if (clickTool === "L" && e.shiftKey) {
       cur = snapDrawPoint(cur, true);
-    } else if (e.ctrlKey && (clickTool === "L" || clickTool === "P" || clickTool === "CIRCUIT" || clickTool === "ARC" || clickTool === "RIGHTANGLE") && draftPoints.length > 0) {
+    } else if (e.ctrlKey && (clickTool === "L" || clickTool === "P" || clickTool === "CIRCUIT" || clickTool === "ARC" || clickTool === "RIGHTANGLE" || clickTool === "LABELER") && draftPoints.length > 0) {
       cur = snapAngle(draftPoints[draftPoints.length - 1], cur);
     } else if (clickTool === "L") {
       setSnapPreview(null); // Shift released mid-draw: drop the stale overlay
@@ -813,6 +814,7 @@ function updateDraftPreview() {
   if (!clickTool || draftPoints.length === 0) return;
   if (clickTool === "ARC") { updateArcPreview(); return; }
   if (clickTool === "RIGHTANGLE") { updateRightAnglePreview(); return; }
+  if (clickTool === "LABELER") { updateLabelerPreview(); return; }
   if (clickTool === "CIRCUIT") {
     // Live preview: leads + body, rebuilt from p1 and the floating mouse (p2).
     const end = mouseWorld || draftPoints[0];
@@ -980,6 +982,59 @@ function commitRightAngle() {
   commitClickShape(marker);
 }
 
+/* ===== LABELER (지시선 + 이름): two-click placement, mirroring the line tool =====
+ *
+ * Reuses the SAME click-to-click locals + commit path as line/arc — no new
+ * interaction machinery. Stores two world points like a line (p1 = leader anchor
+ * on the graph, p2 = label position); render.js draws a short leader from p1 toward
+ * p2 with a small end-gap, then the upright label at p2 (renderLabeler).
+ *   * Click 1 → leader-line start (anchor on/near the graph).
+ *   * Move    → live preview of leader + label.
+ *   * Click 2 → label position → commit (auto-selects, returns to V).
+ * Ctrl = 15° angle-snap of the label point relative to the anchor (shared with the
+ * other click tools via snapAngle). No keyboard shortcut (tool button only). */
+function makeLabelerDraft(anchor, labelPt) {
+  return applyNewObjectStyleDefaults({
+    id: null,                          // assigned on commit
+    type: "labeler",
+    p1: { x: anchor.x, y: anchor.y },  // leader anchor (graph side)
+    p2: { x: labelPt.x, y: labelPt.y },// label position
+    text: "㉠",                        // circled-letter preset (changeable in inspector)
+    labelSize: DEFAULT_TEXT_SIZE_MM,   // mm; settable in inspector
+    strokeLevel: 0,                    // 0 = black (DESIGN 2-2)
+    strokeWidth: DEFAULT_STROKE_WIDTH,
+    locked: false,
+    positionLocked: false,
+    layerId: 1,
+    order: 0,                          // assigned on commit
+  });
+}
+
+function handleLabelerClick(e) {
+  const vb = _state.get().viewBox;
+  let cur = screenToWorld(_svg, vb, e.clientX, e.clientY);
+  if (e.ctrlKey && draftPoints.length > 0) cur = snapAngle(draftPoints[0], cur);
+  draftPoints.push(cur);
+  clickTool = "LABELER";
+  mouseWorld = cur;
+  if (draftPoints.length >= 2) { commitLabeler(); return; }
+  updateLabelerPreview();
+}
+
+function updateLabelerPreview() {
+  if (draftPoints.length === 0) return;
+  const a = draftPoints[0];
+  const b = draftPoints[1] || mouseWorld || a;
+  _state.update((s) => { s.draft = makeLabelerDraft(a, b); });
+}
+
+function commitLabeler() {
+  const lab = makeLabelerDraft(draftPoints[0], draftPoints[1]);
+  const d = Math.hypot(lab.p2.x - lab.p1.x, lab.p2.y - lab.p1.y);
+  if (d < MIN_SIZE) { resetClickDraft(); return; } // zero-length placement: discard
+  commitClickShape(lab);
+}
+
 // POLYLINE / CURVE: needs ?? vertices; otherwise the draft is discarded.
 function finishPolyline() {
   if (draftPoints.length < 2) { resetClickDraft(); return; }
@@ -1031,7 +1086,7 @@ function resetClickDraft() {
 /* ----- commit gate: ignore stray clicks that drew nothing ----- */
 // Size-based shapes need a non-trivial box; a line needs a non-trivial length.
 function isCommittable(shape) {
-  if (shape.type === "line" || shape.type === "circuit") {
+  if (shape.type === "line" || shape.type === "circuit" || shape.type === "labeler") {
     return Math.hypot(shape.p2.x - shape.p1.x, shape.p2.y - shape.p1.y) >= MIN_SIZE;
   }
   if (shape.type === "rightangle") return (shape.size || 0) >= MIN_SIZE;
@@ -1051,7 +1106,7 @@ function hitTest(objects, p, tol = 0, lineTol = tol) {
         o.type !== "line" && o.type !== "polyline" && o.type !== "curve" &&
         o.type !== "text" && o.type !== "formula" && o.type !== "image" && o.type !== "axes" &&
         o.type !== "anglearc" && o.type !== "rightangle" && o.type !== "circuit" &&
-        o.type !== "optics" && o.type !== "apparatus") continue;
+        o.type !== "optics" && o.type !== "apparatus" && o.type !== "labeler") continue;
 
     if (o.type === "text" || o.type === "formula") {
       // Use the rendered SVG element's getBBox for an accurate hit area.
@@ -1170,6 +1225,19 @@ function hitTest(objects, p, tol = 0, lineTol = tol) {
       continue;
     }
 
+    if (o.type === "labeler") {
+      // Hit on the leader segment (p1→p2) OR inside the label box centered at p2.
+      const a = o.p1, b = o.p2;
+      if (a && b) {
+        if (segDist(p.x, p.y, a.x, a.y, b.x, b.y) <= margin) return o.id;
+        const sz = o.labelSize || DEFAULT_TEXT_SIZE_MM;
+        const half = sz * 0.7 + margin; // ~ one glyph box around the label point
+        if (p.x >= b.x - half && p.x <= b.x + half &&
+            p.y >= b.y - half && p.y <= b.y + half) return o.id;
+      }
+      continue;
+    }
+
     if (o.type === "ellipse") {
       // inside the ellipse curve, grown outward by margin on each radius
       const rx = o.w / 2 + margin, ry = o.h / 2 + margin;
@@ -1214,6 +1282,13 @@ function getObjectBBox(o) {
       x: Math.min(o.p1.x, o.p2.x), y: Math.min(o.p1.y, o.p2.y),
       w: Math.abs(o.p2.x - o.p1.x), h: Math.abs(o.p2.y - o.p1.y),
     };
+  }
+  if (o.type === "labeler") {
+    const a = o.p1 || { x: 0, y: 0 }, b = o.p2 || a;
+    const sz = (o.labelSize || DEFAULT_TEXT_SIZE_MM) * 0.7; // pad for the label glyph
+    const minX = Math.min(a.x, b.x - sz), minY = Math.min(a.y, b.y - sz);
+    const maxX = Math.max(a.x, b.x + sz), maxY = Math.max(a.y, b.y + sz);
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
   }
   if (o.type === "polyline" || o.type === "curve") {
     const pts = o.points || [];

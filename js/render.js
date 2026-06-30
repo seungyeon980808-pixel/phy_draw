@@ -7,10 +7,10 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.31.1";
-import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.31.1";
-import { resolveObjectStyle } from "./style-mode.js?v=0.31.1";
-import { renderFormula } from "./formula.js?v=0.31.1";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.32.0";
+import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.32.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.32.0";
+import { renderFormula } from "./formula.js?v=0.32.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -389,7 +389,7 @@ export function render(state) {
     // outline, so draw a dashed rectangle guide spanning the drag bounds first.
     // (rect's own preview already IS that rectangle; the line has no bbox ??it
     // shows its own solid preview below ??so both skip the duplicate guide.)
-    if (d.type !== "rect" && d.type !== "line" && d.type !== "polyline" && d.type !== "curve" && d.type !== "anglearc" && d.type !== "rightangle" && d.type !== "circuit") {
+    if (d.type !== "rect" && d.type !== "line" && d.type !== "polyline" && d.type !== "curve" && d.type !== "anglearc" && d.type !== "rightangle" && d.type !== "circuit" && d.type !== "labeler") {
       const box = document.createElementNS(SVG_NS, "rect");
       box.setAttribute("x", d.x);
       box.setAttribute("y", d.y);
@@ -617,6 +617,14 @@ function makeHitTwin(obj) {
     twin.setAttribute("y", obj.y - r);
     twin.setAttribute("width", r * 2);
     twin.setAttribute("height", r * 2);
+  } else if (obj.type === "labeler") {
+    // Hover band along the leader (p1→p2); the label glyph grabs via its own fill.
+    const a = obj.p1 || { x: 0, y: 0 }, b = obj.p2 || a;
+    twin = document.createElementNS(SVG_NS, "line");
+    twin.setAttribute("x1", a.x);
+    twin.setAttribute("y1", a.y);
+    twin.setAttribute("x2", b.x);
+    twin.setAttribute("y2", b.y);
   } else {
     return null; // not an open path → no twin (closed shapes grab via fill)
   }
@@ -662,6 +670,8 @@ export function renderObject(obj) {
       return renderAngleArc(obj);
     case "rightangle":
       return renderRightAngle(obj);
+    case "labeler":
+      return renderLabeler(obj);
     case "circuit":
       return renderCircuit(obj);
     case "optics":
@@ -1535,6 +1545,48 @@ function renderAngleArc(obj) {
     t.textContent = obj.label;
     g.appendChild(t);
   }
+
+  return g;
+}
+
+/* ----- labeler: a short leader line (지시선) from a graph anchor to an upright
+ * NAME label (이름). Data: p1 = anchor (on/near the graph), p2 = label position,
+ * text = label content (circled-letter preset by default), labelSize = mm. The
+ * leader runs from p1 toward p2 but stops a SMALL gap short of p2, then the upright
+ * (non-rotating) label sits at p2 in the default italic-serif label font
+ * (makeUprightLabel, Group 6 / v0.31.0). Pure projection — both points are the
+ * truth and round-trip on save/load. ----- */
+function renderLabeler(obj) {
+  const g = document.createElementNS(SVG_NS, "g");
+  if (obj.id) g.dataset.id = obj.id;
+  const color = grayHex(obj.strokeLevel);
+  const sw = obj.strokeWidth || 0.2;
+  const a = obj.p1 || { x: 0, y: 0 };
+  const b = obj.p2 || a;
+  const size = obj.labelSize || DEFAULT_TEXT_SIZE_MM;
+
+  // Leader from the anchor toward the label, ending a small gap before the label
+  // so the glyph doesn't touch the line.
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const dist = Math.hypot(dx, dy);
+  const ux = dist ? dx / dist : 0, uy = dist ? dy / dist : 0;
+  const gap = size * 0.9;                 // clear space between leader tip and label
+  const lead = Math.max(dist - gap, 0);   // leader length (never inverts)
+  const ex = a.x + ux * lead, ey = a.y + uy * lead;
+
+  const line = document.createElementNS(SVG_NS, "line");
+  line.setAttribute("x1", a.x);
+  line.setAttribute("y1", a.y);
+  line.setAttribute("x2", ex);
+  line.setAttribute("y2", ey);
+  line.setAttribute("stroke", color);
+  line.setAttribute("stroke-width", sw);
+  line.setAttribute("stroke-linecap", "round");
+  g.appendChild(line);
+
+  // Upright (non-rotating) label at p2, default italic-serif label font.
+  const lbl = makeUprightLabel(obj.text, b.x, b.y, color, size);
+  if (lbl) g.appendChild(lbl);
 
   return g;
 }
@@ -2498,6 +2550,13 @@ export function singleObjBBox(o, scene) {
       w: Math.abs(o.p2.x - o.p1.x), h: Math.abs(o.p2.y - o.p1.y),
     };
   }
+  if (o.type === "labeler") {
+    const a = o.p1 || { x: 0, y: 0 }, b = o.p2 || a;
+    const sz = (o.labelSize || DEFAULT_TEXT_SIZE_MM) * 0.7; // pad for the label glyph
+    const minX = Math.min(a.x, b.x - sz), minY = Math.min(a.y, b.y - sz);
+    const maxX = Math.max(a.x, b.x + sz), maxY = Math.max(a.y, b.y + sz);
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }
   if (o.type === "polyline" || o.type === "curve") {
     const pts = o.points || [];
     if (!pts.length) return null;
@@ -2634,9 +2693,9 @@ function renderHandles(sel, scene, zoom, activeTool) {
       makeHandle(hSW.x, hSW.y, "sw");
       makeHandle(hW.x,  hW.y,  "w");
     }
-  } else if (sel.type === "line" || sel.type === "circuit") {
-    // Circuit reuses the line's two endpoint handles: drag p1/p2 to move a
-    // terminal; the body stays centered automatically (derived geometry).
+  } else if (sel.type === "line" || sel.type === "circuit" || sel.type === "labeler") {
+    // Circuit + labeler reuse the line's two endpoint handles: drag p1/p2 to move
+    // an endpoint. For the labeler, p0 = leader anchor, p1 = label position.
     makeHandle(sel.p1.x, sel.p1.y, "p0", true);
     makeHandle(sel.p2.x, sel.p2.y, "p1", true);
   } else if ((sel.type === "polyline" || sel.type === "curve") && !sel.closed) {
