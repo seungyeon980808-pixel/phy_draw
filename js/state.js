@@ -1,4 +1,4 @@
-/* ===== STATE (DESIGN 1-1: data is the single source of truth) ===== */
+﻿/* ===== STATE (DESIGN 1-1: data is the single source of truth) ===== */
 //
 // The whole drawing is one plain data object. SVG is only a projection of it.
 // `objects` holds every shape (a rectangle is one object — DESIGN 1-1). The
@@ -7,7 +7,7 @@
 // `viewBox` mirrors the SVG viewBox and is the ONLY coordinate authority
 // (DESIGN 1-2). Zoom/pan mutate this, never a CSS transform.
 
-import { createStore } from "./store.js?v=0.30.0";
+import { createStore } from "./store.js?v=0.31.0";
 
 /* ===== TEXT FONT OPTIONS (single source for inspector + font modal) =====
  * `css` is used verbatim as both the SVG <text> font-family AND the editor

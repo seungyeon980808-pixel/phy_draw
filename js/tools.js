@@ -1,4 +1,4 @@
-/* ===== TOOLS (DESIGN 짠3 tool selection + the rectangle draw pipeline) ===== */
+﻿/* ===== TOOLS (DESIGN 짠3 tool selection + the rectangle draw pipeline) ===== */
 //
 // Two responsibilities, both routed through the store so data stays the truth:
 //   1. Tool selection ??V (select) / R (rectangle), via buttons or keyboard.
@@ -11,17 +11,17 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.30.0";
+import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.31.0";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt, MIN_TEXT_PT,
-} from "./state.js?v=0.30.0";
+} from "./state.js?v=0.31.0";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.30.0";
-import { resolveEndpointSnap } from "./snap.js?v=0.30.0";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.30.0";
-import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.30.0";
+import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.31.0";
+import { resolveEndpointSnap } from "./snap.js?v=0.31.0";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.31.0";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.31.0";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -163,9 +163,8 @@ function setupKeyboard() {
     else if (key === "p") setActiveTool("P");              // 꺾은선 (polyline)
     else if (key === "n") activateSymbolShortcut("node", "N"); // 점 (node, mnemonic: node)
     else if (key === "x") activateSymbolShortcut("axes", "X");
-    else if (key === "a") activateSymbolShortcut("anglearc", "A");
+    else if (key === "a") activateSymbolShortcut("anglearc", "A"); // 각도호 — single binding
     else if (key === "g" && e.shiftKey) activateSymbolShortcut("rightangle", "Shift+G");
-    else if (key === "g") activateSymbolShortcut("anglearc", "G");
     else if (key === "c") setActiveTool("C");
     else if (key === "t") setActiveTool("T");
     else if (key === "f") setActiveTool("F");              // 자유그리기 (free-draw)
@@ -661,7 +660,14 @@ function setupFreeDraw() {
  * outline (rect/triangle edges, ellipse/circle/curve surfaces) via the SAME
  * shared resolveEndpointSnap path the line-endpoint snap uses; a single red dot
  * marks the snapped point and the click commits there. */
-const NODE_DEFAULT_SIZE = 16; // world mm (matches templates.js node default)
+// A 점 renders as a filled dot of radius = min(w,h) × NODE_DOT_RADIUS_RATIO (see
+// render.js node drawer). Reference look: dot DIAMETER ≈ POINT_DIAMETER_PER_WIDTH
+// × line width, so with the 0.2 mm default line width a new 점 is ≈ 1.0 mm Ø
+// (0.5 mm radius). Tune POINT_DIAMETER_PER_WIDTH to rescale every new 점.
+const POINT_DIAMETER_PER_WIDTH = 5;   // dot Ø ≈ 5 × line width (estimated from reference)
+const NODE_DOT_RADIUS_RATIO = 0.22;   // must match render.js node drawer
+const NODE_DEFAULT_SIZE =
+  (DEFAULT_STROKE_WIDTH * POINT_DIAMETER_PER_WIDTH) / (2 * NODE_DOT_RADIUS_RATIO); // ≈ 2.27 mm bbox → 1.0 mm Ø dot
 function isNodeToolArmed() {
   return _state.get().activeTool === "OPTICS" && _opticsKind === "node";
 }

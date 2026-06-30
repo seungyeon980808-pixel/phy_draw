@@ -1,8 +1,8 @@
-/* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
+﻿/* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm, MIN_TEXT_PT } from "./state.js?v=0.30.0";
-import { openFontModalForSelection } from "./tools.js?v=0.30.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.30.0";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, mmToPt, ptToMm, MIN_TEXT_PT } from "./state.js?v=0.31.0";
+import { openFontModalForSelection } from "./tools.js?v=0.31.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.31.0";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -167,6 +167,45 @@ export function initInspector(state) {
   const emptyEl   = document.getElementById("inspector-empty");
   const contentEl = document.getElementById("inspector-content");
   if (!emptyEl || !contentEl) return;
+
+  /* ----- shared 라벨 크기 row builder (Group 6 task 6) -----
+   * A "라벨 크기" number input in points; stores obj.labelSize in world mm.
+   * `applies(o)` guards which selected object types accept the edit (line vs box).
+   * Returns { row, num } so callers can append it and sync its value in populate(). */
+  function makeLabelSizeRow(applies) {
+    const row = document.createElement("div");
+    row.className = "insp-row";
+    const lbl = document.createElement("label");
+    lbl.className = "insp-field-label";
+    lbl.textContent = "라벨 크기";
+    const num = document.createElement("input");
+    num.type = "number";
+    num.min = String(MIN_TEXT_PT);
+    num.max = "400";
+    num.step = "1";
+    num.style.cssText = "width:56px;font-size:11px;border:1px solid #3a3c41;border-radius:3px;padding:2px 4px;text-align:center;background:#1e1f22;color:#dcddde;";
+    const unit = document.createElement("span");
+    unit.textContent = "pt";
+    unit.className = "insp-unit";
+    row.appendChild(lbl); row.appendChild(num); row.appendChild(unit);
+    num.addEventListener("change", () => {
+      const s = state.get();
+      const id = (s.selectedIds || [])[0];
+      if (!id) return;
+      let pt = Number(num.value);
+      if (!isFinite(pt) || pt < MIN_TEXT_PT) pt = MIN_TEXT_PT;
+      const mm = ptToMm(pt);
+      const snap = JSON.parse(JSON.stringify(s.objects));
+      state.update((s2) => {
+        const o = s2.objects.find((it) => it.id === id);
+        if (!o || !applies(o) || o.locked) return;
+        o.labelSize = mm;
+        s2.undoStack.push(snap);
+        s2.redoStack = [];
+      });
+    });
+    return { row, num };
+  }
 
   // Click-to-select-all: focusing any number input selects its value so a typed
   // digit replaces the old value instead of inserting into it.
@@ -464,6 +503,39 @@ export function initInspector(state) {
       s2.redoStack = [];
     });
   });
+
+  // ---- 라벨 반전 (Group 6 task 2): mirror the label to the opposite side of the
+  // line at the same perpendicular distance. Toggles obj.labelFlip; render.js
+  // (withLineLabel) flips the normal-offset sign. Only the position changes. ----
+  const lineLabelFlipRow = document.createElement("div");
+  lineLabelFlipRow.className = "insp-row";
+  const lineLabelFlipLbl = document.createElement("label");
+  lineLabelFlipLbl.className = "insp-field-label";
+  lineLabelFlipLbl.textContent = ""; // align with the 라벨 column
+  const lineLabelFlipBtn = document.createElement("button");
+  lineLabelFlipBtn.type = "button";
+  lineLabelFlipBtn.textContent = "반전";
+  lineLabelFlipBtn.style.cssText = "padding:4px 10px;font-size:11px;cursor:pointer;border:1px solid #3a3c41;border-radius:3px;background:#1e1f22;color:#dcddde;";
+  lineLabelFlipBtn.addEventListener("click", () => {
+    const s = state.get();
+    const id = (s.selectedIds || [])[0];
+    if (!id) return;
+    const snap = JSON.parse(JSON.stringify(s.objects));
+    state.update((s2) => {
+      const o = s2.objects.find((item) => item.id === id);
+      if (!o || o.type !== "line" || o.locked) return;
+      o.labelFlip = !o.labelFlip;
+      s2.undoStack.push(snap);
+      s2.redoStack = [];
+    });
+  });
+  lineLabelFlipRow.appendChild(lineLabelFlipLbl);
+  lineLabelFlipRow.appendChild(lineLabelFlipBtn);
+  sec1Body.appendChild(lineLabelFlipRow);
+
+  // ---- 라벨 크기 (Group 6 task 6): per-line label font size in points → mm. ----
+  const lineLabelSizeRow = makeLabelSizeRow((o) => o.type === "line");
+  sec1Body.appendChild(lineLabelSizeRow.row);
 
   // ---- Dash presets + length/gap sliders (line/polyline/curve) ----
   const dashRow = document.createElement("div");
@@ -1433,6 +1505,10 @@ export function initInspector(state) {
     });
   });
 
+  // ---- rect/ellipse 라벨 크기 (Group 6 task 6): per-box label font size. ----
+  const boxLabelSizeRow = makeLabelSizeRow((o) => o.type === "rect" || o.type === "ellipse");
+  sec3Body.appendChild(boxLabelSizeRow.row);
+
   // capacitor-only: plate separation 간격 (world mm).
   const gapRow = document.createElement("div");
   gapRow.className = "insp-row";
@@ -2071,8 +2147,11 @@ export function initInspector(state) {
     // line (set in the single-selection branch); hidden in every other case.
     boxLabelRow.style.display = "none";
     boxLabelPosRow.style.display = "none";
+    boxLabelSizeRow.row.style.display = "none";
     lineLabelRow.style.display = "none";
     lineLabelShowRow.style.display = "none";
+    lineLabelFlipRow.style.display = "none";
+    lineLabelSizeRow.row.style.display = "none";
 
     // Targeted state: only show ungroup button, hide everything else
     if (s.targetedId) {
@@ -2326,12 +2405,20 @@ export function initInspector(state) {
     dimensionLabelRow.style.display = isStraightLine && lineMode === "lengthArrow" ? "" : "none";
     if (document.activeElement !== dimensionLabelInp) dimensionLabelInp.value = obj.dimensionLabel ?? "d";
 
-    // Group-3 straight-line upright label: text + on/off toggle.
-    lineLabelRow.style.display = isStraightLine ? "" : "none";
-    lineLabelShowRow.style.display = isStraightLine ? "" : "none";
-    if (isStraightLine) {
+    // Group-3 straight-line upright label: text + on/off toggle + 반전 + 크기.
+    // Hidden entirely in length-display (lengthArrow) mode — the dimension label
+    // along the line is shown instead, so the external label is redundant (task 3).
+    const showLineLabel = isStraightLine && lineMode !== "lengthArrow";
+    lineLabelRow.style.display = showLineLabel ? "" : "none";
+    lineLabelShowRow.style.display = showLineLabel ? "" : "none";
+    lineLabelFlipRow.style.display = showLineLabel ? "" : "none";
+    lineLabelSizeRow.row.style.display = showLineLabel ? "" : "none";
+    if (showLineLabel) {
       if (document.activeElement !== lineLabelInp) lineLabelInp.value = obj.label ?? "";
       lineLabelShowCb.checked = obj.labelShow === true;
+      if (document.activeElement !== lineLabelSizeRow.num) {
+        lineLabelSizeRow.num.value = Math.round(mmToPt(obj.labelSize || DEFAULT_TEXT_SIZE_MM));
+      }
     }
 
     // Arrow head: open line + open polyline (closed polyline = filled shape, no arrow).
@@ -2414,9 +2501,13 @@ export function initInspector(state) {
     const isBoxLabelType = obj.type === "rect" || obj.type === "ellipse";
     boxLabelRow.style.display = isBoxLabelType ? "" : "none";
     boxLabelPosRow.style.display = isBoxLabelType ? "" : "none";
+    boxLabelSizeRow.row.style.display = isBoxLabelType ? "" : "none";
     if (isBoxLabelType) {
       if (document.activeElement !== boxLabelInp) boxLabelInp.value = obj.label ?? "";
       boxLabelPosSel.value = ["center", "above", "below"].includes(obj.labelPos) ? obj.labelPos : "center";
+      if (document.activeElement !== boxLabelSizeRow.num) {
+        boxLabelSizeRow.num.value = Math.round(mmToPt(obj.labelSize || DEFAULT_TEXT_SIZE_MM));
+      }
     }
     gapRow.style.display = isCap ? "" : "none";
     circuitHeightF.el.style.display = hasCircuitHeight ? "" : "none";

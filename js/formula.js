@@ -1,4 +1,4 @@
-/* ===== FORMULA (brace-syntax math rendering) =====
+﻿/* ===== FORMULA (brace-syntax math rendering) =====
  *
  * A `formula` object is one atomic drawing object whose `source` is a small,
  * LaTeX-like, BRACE-based string (parentheses are LITERAL text — physics
@@ -22,7 +22,7 @@
  * source degrades to literal text rather than blanking the canvas.
  */
 
-import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM } from "./state.js?v=0.30.0";
+import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM } from "./state.js?v=0.31.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 // Glyph + rule ink. Mirrors renderText(), which always paints #0d1117 (text has

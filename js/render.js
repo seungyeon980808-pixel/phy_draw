@@ -1,4 +1,4 @@
-/* ===== RENDER (DESIGN 1-1: SVG is a projection of state.objects) ===== */
+﻿/* ===== RENDER (DESIGN 1-1: SVG is a projection of state.objects) ===== */
 //
 // render(state) repaints the <g id="scene"> from data. It is registered as a
 // store subscriber in main.js, so ANY state.update() repaints automatically ??// no caller ever invokes render() by hand. That is the data-as-truth proof.
@@ -7,10 +7,10 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.30.0";
-import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.30.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.30.0";
-import { renderFormula } from "./formula.js?v=0.30.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.31.0";
+import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.31.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.31.0";
+import { renderFormula } from "./formula.js?v=0.31.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -679,15 +679,20 @@ export function renderObject(obj) {
  * rotated shape, never inside the rotation group), in the default font, and IS
  * included in export (it lives in renderObject's output). Returns an SVG <text>
  * node, or null when there's no label text. */
-const LABEL_GAP_MM = DEFAULT_TEXT_SIZE_MM * 0.85;
-function makeUprightLabel(text, x, y, color) {
+// Object/line labels (Group 6): default to an ITALIC SERIF stack by NAME. 신명중명조
+// is commercial/non-embeddable, so we name a 기울임 명조 look that resolves cross-
+// platform (Windows 바탕/Batang, macOS AppleMyungjo) so Latin variables (d/m/F)
+// render as italic serif. Size is per-object (obj.labelSize), default below.
+const LABEL_FONT = '"신명조", "바탕", Batang, "AppleMyungjo", serif';
+function makeUprightLabel(text, x, y, color, sizeMm = DEFAULT_TEXT_SIZE_MM) {
   const s = String(text ?? "");
   if (!s) return null;
   const t = document.createElementNS(SVG_NS, "text");
   t.setAttribute("x", x);
   t.setAttribute("y", y);
-  t.setAttribute("font-size", DEFAULT_TEXT_SIZE_MM);
-  t.setAttribute("font-family", DEFAULT_TEXT_FONT);
+  t.setAttribute("font-size", sizeMm);
+  t.setAttribute("font-family", LABEL_FONT);
+  t.setAttribute("font-style", "italic");
   t.setAttribute("fill", color);
   t.setAttribute("text-anchor", "middle");
   t.setAttribute("dominant-baseline", "central");
@@ -695,7 +700,7 @@ function makeUprightLabel(text, x, y, color) {
   // line length-display label).
   t.setAttribute("paint-order", "stroke");
   t.setAttribute("stroke", "white");
-  t.setAttribute("stroke-width", DEFAULT_TEXT_SIZE_MM * 0.16);
+  t.setAttribute("stroke-width", sizeMm * 0.16);
   t.setAttribute("stroke-linejoin", "round");
   t.textContent = s;
   return t;
@@ -708,12 +713,14 @@ function makeUprightLabel(text, x, y, color) {
  * with no label the bare shape element is returned unchanged. */
 function withBoxLabel(shapeEl, obj) {
   const pos = obj.labelPos || "center";
+  const size = obj.labelSize || DEFAULT_TEXT_SIZE_MM;
+  const gap = size * 0.85;
   const cx = obj.x + obj.w / 2;
   let ly;
-  if (pos === "above")      ly = obj.y - LABEL_GAP_MM;
-  else if (pos === "below") ly = obj.y + obj.h + LABEL_GAP_MM;
+  if (pos === "above")      ly = obj.y - gap;
+  else if (pos === "below") ly = obj.y + obj.h + gap;
   else                      ly = obj.y + obj.h / 2; // center
-  const lbl = makeUprightLabel(obj.label, cx, ly, grayHex(obj.strokeLevel));
+  const lbl = makeUprightLabel(obj.label, cx, ly, grayHex(obj.strokeLevel), size);
   if (!lbl) return shapeEl;
   const g = document.createElementNS(SVG_NS, "g");
   if (obj.id) { g.dataset.id = obj.id; delete shapeEl.dataset.id; }
@@ -1024,9 +1031,26 @@ function renderLine(obj) {
  * naturally upright. Wraps the body in a <g> carrying the data-id. */
 function withLineLabel(bodyEl, obj) {
   if (!(obj.labelShow && String(obj.label ?? ""))) return bodyEl;
+  // Length-display (dimension) mode already shows text along the line, so the
+  // external label is redundant there — skip it (Group 6 task 3).
+  if (obj.lineStyle === "dimensionArrow") return bodyEl;
   const mx = (obj.p1.x + obj.p2.x) / 2;
   const my = (obj.p1.y + obj.p2.y) / 2;
-  const lbl = makeUprightLabel(obj.label, mx, my - DEFAULT_TEXT_SIZE_MM, grayHex(obj.strokeLevel));
+  const size = obj.labelSize || DEFAULT_TEXT_SIZE_MM;
+  // Offset the label along the line's NORMAL by a FIXED distance so the label-to-
+  // line gap is identical at every angle (the old screen-up offset varied with
+  // angle). Default side is normalized to screen-up (negative y); 반전(labelFlip)
+  // mirrors it to the opposite side at the SAME perpendicular distance (point-
+  // symmetric about the foot of the perpendicular = the midpoint).
+  const dx = obj.p2.x - obj.p1.x, dy = obj.p2.y - obj.p1.y;
+  const len = Math.hypot(dx, dy) || 1;
+  let nx = -dy / len, ny = dx / len;
+  if (ny > 0) { nx = -nx; ny = -ny; } // keep default side pointing up
+  const side = obj.labelFlip ? -1 : 1;
+  const off = size; // fixed perpendicular gap (angle-independent)
+  const lx = mx + nx * off * side;
+  const ly = my + ny * off * side;
+  const lbl = makeUprightLabel(obj.label, lx, ly, grayHex(obj.strokeLevel), size);
   if (!lbl) return bodyEl;
   const g = document.createElementNS(SVG_NS, "g");
   if (obj.id) { g.dataset.id = obj.id; if (bodyEl.dataset) delete bodyEl.dataset.id; }
