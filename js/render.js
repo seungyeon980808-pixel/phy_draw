@@ -7,7 +7,7 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.35.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.35.1";
 import {
   DEFAULT_TEXT_FONT,
   DEFAULT_TEXT_SIZE_MM,
@@ -21,9 +21,9 @@ import {
   OBJECT_LABEL_TEXT_FONT_FAMILY,
   resolveTextFontStyle,
   resolveTextLetterSpacing,
-} from "./state.js?v=0.35.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.35.0";
-import { renderFormula } from "./formula.js?v=0.35.0";
+} from "./state.js?v=0.35.1";
+import { resolveObjectStyle } from "./style-mode.js?v=0.35.1";
+import { renderFormula } from "./formula.js?v=0.35.1";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -1612,6 +1612,35 @@ function renderAngleArc(obj) {
   return g;
 }
 
+/* ----- estimate a labeler's text block half-extents (world mm) -----
+ * No exact measurement is available here: renderLabeler runs for both the live
+ * canvas and SVG/PNG export, where the element isn't laid out yet (getBBox would
+ * read 0). So estimate from font size, line count, the longest line, and the
+ * line height used by makeUprightLabel (lineHeight = size * 1.2). The block is
+ * centered on the label point; the returned half-width/half-height include `pad`.
+ * Per-char widths intentionally OVER-estimate (CJK ≈ 1em, others ≈ 0.6em) so the
+ * leader stops outside the glyphs even when measurement is imperfect. */
+function estimateLabelBlock(text, size, pad) {
+  const s = String(text ?? "");
+  const lines = s.length ? s.split("\n") : [""];
+  const lineHeight = size * 1.2;
+  const isWide = (code) =>
+    (code >= 0x1100 && code <= 0x11ff) ||  // Hangul Jamo
+    (code >= 0x3000 && code <= 0x9fff) ||  // CJK symbols/punctuation + Unified
+    (code >= 0xac00 && code <= 0xd7a3) ||  // Hangul Syllables
+    (code >= 0xf900 && code <= 0xfaff) ||  // CJK Compatibility Ideographs
+    (code >= 0xff00 && code <= 0xffef);    // Fullwidth forms
+  let maxEm = 0;
+  for (const line of lines) {
+    let em = 0;
+    for (const ch of line) em += isWide(ch.codePointAt(0)) ? 1.0 : 0.6;
+    maxEm = Math.max(maxEm, em);
+  }
+  const blockW = maxEm * size;
+  const blockH = lines.length * lineHeight;
+  return { hw: blockW / 2 + pad, hh: blockH / 2 + pad };
+}
+
 /* ----- labeler: a short leader line (지시선) from a graph anchor to an upright
  * NAME label (이름). Data: p1 = anchor (on/near the graph), p2 = label position,
  * text = label content (circled-letter preset by default), labelSize = mm. The
@@ -1628,27 +1657,36 @@ function renderLabeler(obj) {
   const b = obj.p2 || a;
   const size = obj.labelSize || DEFAULT_TEXT_SIZE_MM;
 
-  // Leader from the anchor toward the label, ending a small gap before the label
-  // so the glyph doesn't touch the line.
+  // Leader from the anchor toward the label, stopping at the edge of the label's
+  // (multiline-aware) text block so the line never crosses the glyphs. The block
+  // is upright and centered on b (matching makeUprightLabel), so its axis-aligned
+  // bounds are valid under any labeler rotation (which rotates a/b in world space).
   const dx = b.x - a.x, dy = b.y - a.y;
   const dist = Math.hypot(dx, dy);
   const ux = dist ? dx / dist : 0, uy = dist ? dy / dist : 0;
-  // Stop the leader just shy of the label: enough to clear a circled-letter
-  // glyph (~0.5em radius) plus a small ~2-4px visual gap, no more. Smaller than
-  // the old size*0.9 so the line reads as connected to the label.
-  const gap = size * 0.6;                 // clear space between leader tip and label
-  const lead = Math.max(dist - gap, 0);   // leader length (never inverts)
-  const ex = a.x + ux * lead, ey = a.y + uy * lead;
-
-  const line = document.createElementNS(SVG_NS, "line");
-  line.setAttribute("x1", a.x);
-  line.setAttribute("y1", a.y);
-  line.setAttribute("x2", ex);
-  line.setAttribute("y2", ey);
-  line.setAttribute("stroke", color);
-  line.setAttribute("stroke-width", sw);
-  line.setAttribute("stroke-linecap", "round");
-  g.appendChild(line);
+  // Small visual gap (~2-4px equivalent) between the leader tip and the text edge.
+  const pad = size * 0.25;
+  const { hw, hh } = estimateLabelBlock(obj.text, size, pad);
+  // Distance from b back along the leader to where it crosses the padded block:
+  // the nearer of the vertical/horizontal faces (ray-vs-centered-box).
+  const tx = Math.abs(ux) > 1e-6 ? hw / Math.abs(ux) : Infinity;
+  const ty = Math.abs(uy) > 1e-6 ? hh / Math.abs(uy) : Infinity;
+  const tBox = Math.min(tx, ty);
+  const lead = dist - tBox;                // leader length, trimmed to the block edge
+  // Fall back safely when the anchor sits inside (or within the gap of) the text
+  // block: skip the leader entirely rather than draw a line over the glyphs.
+  if (lead > 0.05) {
+    const ex = a.x + ux * lead, ey = a.y + uy * lead;
+    const line = document.createElementNS(SVG_NS, "line");
+    line.setAttribute("x1", a.x);
+    line.setAttribute("y1", a.y);
+    line.setAttribute("x2", ex);
+    line.setAttribute("y2", ey);
+    line.setAttribute("stroke", color);
+    line.setAttribute("stroke-width", sw);
+    line.setAttribute("stroke-linecap", "round");
+    g.appendChild(line);
+  }
 
   // Upright (non-rotating) callout text at p2. Default is the 라벨(Shin Myeongjo
   // normal) callout font; if the labeler's labelType is set to 물리량 it renders as
