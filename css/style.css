@@ -52,7 +52,7 @@
 /* ===== TOKENS (legacy aliases → resolve against the active theme) ===== */
 :root {
   --font-normal-text: "돋움", "Dotum", "Apple SD Gothic Neo", "맑은 고딕", "Malgun Gothic", sans-serif;
-  --font-tool-label: "HyhwpEQ", "HYhwpEQ", "HancomEQN", "HWhwpEQ", "신명중명조", "Shin Myeongjo", "SMMyungJo", "Times New Roman", "Batang", "바탕", serif;
+  --font-tool-label: "HYhwpEQ", "HWhwpEQ", "Cambria Math", "Times New Roman", "Batang", "바탕", serif;
 
   --c-main: var(--accent);
   --c-sub: var(--text-label);

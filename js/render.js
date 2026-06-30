@@ -7,18 +7,17 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.32.3";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.32.4";
 import {
   DEFAULT_TEXT_FONT,
   DEFAULT_TEXT_SIZE_MM,
   CIRCUIT_BODY_MM,
   TOOL_LABEL_FONT_FAMILY,
   VARIABLE_LABEL_FONT_STYLE,
-  VARIABLE_LABEL_FALLBACK_FONT_STYLE,
   CALLOUT_LABEL_FONT_STYLE,
-} from "./state.js?v=0.32.3";
-import { resolveObjectStyle } from "./style-mode.js?v=0.32.3";
-import { renderFormula } from "./formula.js?v=0.32.3";
+} from "./state.js?v=0.32.4";
+import { resolveObjectStyle } from "./style-mode.js?v=0.32.4";
+import { renderFormula } from "./formula.js?v=0.32.4";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -697,8 +696,7 @@ export function renderObject(obj) {
  * rotated shape, never inside the rotation group), in the default font, and IS
  * included in export (it lives in renderObject's output). Returns an SVG <text>
  * node, or null when there's no label text. */
-// Physics variable labels use the HWP equation font at its native slant.
-// Synthetic italic over-slants HyhwpEQ in Chromium.
+// Physics variable labels use the Chrome-resolved HWP equation font family.
 function makeUprightLabel(text, x, y, color, sizeMm = DEFAULT_TEXT_SIZE_MM, options = {}) {
   const s = String(text ?? "");
   if (!s) return null;
@@ -875,30 +873,8 @@ function textFontStyle(obj) {
   return obj.italic === true ? "italic" : "normal";
 }
 
-let _equationFontAvailable = null;
-
-function hasEquationFont() {
-  if (_equationFontAvailable != null) return _equationFontAvailable;
-  if (typeof document === "undefined") {
-    _equationFontAvailable = true;
-    return _equationFontAvailable;
-  }
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    _equationFontAvailable = true;
-    return _equationFontAvailable;
-  }
-  ctx.font = 'normal 64px "HyhwpEQ", serif';
-  const eqWidth = ctx.measureText("mh").width;
-  ctx.font = 'normal 64px "Times New Roman", serif';
-  const timesWidth = ctx.measureText("mh").width;
-  _equationFontAvailable = Math.abs(eqWidth - timesWidth) > 1;
-  return _equationFontAvailable;
-}
-
 function variableLabelFontStyle() {
-  return hasEquationFont() ? VARIABLE_LABEL_FONT_STYLE : VARIABLE_LABEL_FALLBACK_FONT_STYLE;
+  return VARIABLE_LABEL_FONT_STYLE;
 }
 
 function applyVariableLabelFont(t) {
@@ -1073,7 +1049,7 @@ function renderLine(obj) {
     label.setAttribute("y", my);
     label.setAttribute("fill", color);
     label.setAttribute("font-size", Math.max(2.5, sw * 8));
-    // Match the straight-line external label (makeUprightLabel): native HyhwpEQ
+    // Match the straight-line external label (makeUprightLabel): HWP equation
     // stack so a dimension label (e.g. "Q") reads identically to a line
     // variable label (e.g. "H"). Style only — geometry/behavior unchanged.
     applyVariableLabelFont(label);

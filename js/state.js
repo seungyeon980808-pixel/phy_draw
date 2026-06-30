@@ -7,12 +7,11 @@
 // `viewBox` mirrors the SVG viewBox and is the ONLY coordinate authority
 // (DESIGN 1-2). Zoom/pan mutate this, never a CSS transform.
 
-import { createStore } from "./store.js?v=0.32.3";
+import { createStore } from "./store.js?v=0.32.4";
 
 export const TEXT_FONT_FAMILY = '"돋움", "Dotum", "Apple SD Gothic Neo", "맑은 고딕", "Malgun Gothic", sans-serif';
-export const TOOL_LABEL_FONT_FAMILY = '"HyhwpEQ", "HYhwpEQ", "HancomEQN", "HWhwpEQ", "신명중명조", "Shin Myeongjo", "SMMyungJo", "Times New Roman", "Batang", "바탕", serif';
-export const VARIABLE_LABEL_FONT_STYLE = "normal";
-export const VARIABLE_LABEL_FALLBACK_FONT_STYLE = "italic";
+export const TOOL_LABEL_FONT_FAMILY = '"HYhwpEQ", "HWhwpEQ", "Cambria Math", "Times New Roman", "Batang", "바탕", serif';
+export const VARIABLE_LABEL_FONT_STYLE = "italic";
 export const CALLOUT_LABEL_FONT_STYLE = "normal";
 
 /* ===== TEXT FONT OPTIONS (single source for inspector + font modal) =====

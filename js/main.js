@@ -7,19 +7,19 @@
 //   4. init tools (tool selection + the rectangle draw pipeline).
 
 // ?v= matches index.html so a version bump reloads every module, not just main.
-import { state } from "./state.js?v=0.32.3";
-import { render } from "./render.js?v=0.32.3";
-import { initViewport, getZoom, screenToWorld, centerView, setCenterLocked } from "./viewport.js?v=0.32.3";
-import { initTools } from "./tools.js?v=0.32.3";
-import { initTransform, undo, redo } from "./transform.js?v=0.32.3";
-import { initInspector } from "./inspector.js?v=0.32.3";
-import { initProjectIO } from "./project-io.js?v=0.32.3";
-import { initExportDialog } from "./export-dialog.js?v=0.32.3";
-import { initRuler, setRulerVisible } from "./ruler.js?v=0.32.3";
-import { initSettings } from "./settings.js?v=0.32.3";
-import { initImageObjectify } from "./image-objectify.js?v=0.32.3";
-import { initTemplates } from "./templates.js?v=0.32.3";
-import { initObjectSearch } from "./search.js?v=0.32.3";
+import { state } from "./state.js?v=0.32.4";
+import { render } from "./render.js?v=0.32.4";
+import { initViewport, getZoom, screenToWorld, centerView, setCenterLocked } from "./viewport.js?v=0.32.4";
+import { initTools } from "./tools.js?v=0.32.4";
+import { initTransform, undo, redo } from "./transform.js?v=0.32.4";
+import { initInspector } from "./inspector.js?v=0.32.4";
+import { initProjectIO } from "./project-io.js?v=0.32.4";
+import { initExportDialog } from "./export-dialog.js?v=0.32.4";
+import { initRuler, setRulerVisible } from "./ruler.js?v=0.32.4";
+import { initSettings } from "./settings.js?v=0.32.4";
+import { initImageObjectify } from "./image-objectify.js?v=0.32.4";
+import { initTemplates } from "./templates.js?v=0.32.4";
+import { initObjectSearch } from "./search.js?v=0.32.4";
 
 const svg = document.getElementById("canvas");
 const zoomReadout = document.getElementById("zoom-readout");
@@ -242,7 +242,7 @@ window.phyDraw = {
 })();
 
 console.info(
-  "[시범공개] [5E v0.32.3] Pick R (or press R), drag on the canvas to draw a\n" +
+  "[시범공개] [5E v0.32.4] Pick R (or press R), drag on the canvas to draw a\n" +
     "Press 'd' to toggle the live coord-debug overlay (pointer?봶orld mapping).\n" +
     "rectangle. Verify with:\n" +
     "  phyDraw.objects()        // array of committed rect objects\n" +
