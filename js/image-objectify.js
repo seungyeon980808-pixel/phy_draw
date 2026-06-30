@@ -1,6 +1,6 @@
 /* ===== IMAGE OBJECTIFY (local image -> editable line rough draft) ===== */
 
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.36.1";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.36.2";
 
 const ACCEPTED_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const MAX_PROCESS_DIMENSION = 1600;

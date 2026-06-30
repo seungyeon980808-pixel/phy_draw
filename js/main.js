@@ -7,19 +7,20 @@
 //   4. init tools (tool selection + the rectangle draw pipeline).
 
 // ?v= matches index.html so a version bump reloads every module, not just main.
-import { state } from "./state.js?v=0.36.1";
-import { render } from "./render.js?v=0.36.1";
-import { initViewport, getZoom, screenToWorld, centerView, setCenterLocked } from "./viewport.js?v=0.36.1";
-import { initTools } from "./tools.js?v=0.36.1";
-import { initTransform, undo, redo } from "./transform.js?v=0.36.1";
-import { initInspector } from "./inspector.js?v=0.36.1";
-import { initProjectIO } from "./project-io.js?v=0.36.1";
-import { initExportDialog } from "./export-dialog.js?v=0.36.1";
-import { initRuler, setRulerVisible } from "./ruler.js?v=0.36.1";
-import { initSettings } from "./settings.js?v=0.36.1";
-import { initImageObjectify } from "./image-objectify.js?v=0.36.1";
-import { initTemplates } from "./templates.js?v=0.36.1";
-import { initObjectSearch } from "./search.js?v=0.36.1";
+import { state } from "./state.js?v=0.36.2";
+import { render } from "./render.js?v=0.36.2";
+import { initViewport, getZoom, screenToWorld, centerView, setCenterLocked } from "./viewport.js?v=0.36.2";
+import { initTools } from "./tools.js?v=0.36.2";
+import { initTransform, undo, redo } from "./transform.js?v=0.36.2";
+import { initInspector } from "./inspector.js?v=0.36.2";
+import { initProjectIO } from "./project-io.js?v=0.36.2";
+import { initExportDialog } from "./export-dialog.js?v=0.36.2";
+import { initRuler, setRulerVisible } from "./ruler.js?v=0.36.2";
+import { initSettings } from "./settings.js?v=0.36.2";
+import { initImageObjectify } from "./image-objectify.js?v=0.36.2";
+import { initImageImportMock } from "./image-import-mock.js?v=0.36.2";
+import { initTemplates } from "./templates.js?v=0.36.2";
+import { initObjectSearch } from "./search.js?v=0.36.2";
 
 const svg = document.getElementById("canvas");
 const zoomReadout = document.getElementById("zoom-readout");
@@ -138,6 +139,9 @@ initSettings(state);
 /* ----- advanced: local image-to-line rough draft extraction ----- */
 initImageObjectify(state);
 
+/* ----- advanced: local mock JSON → editable objects (image-to-object Phase 1) ----- */
+initImageImportMock(state);
+
 /* ----- template library: 기호 패널 클릭 → 캔버스에 심볼 instantiate ----- */
 initTemplates(svg);
 
@@ -242,7 +246,7 @@ window.phyDraw = {
 })();
 
 console.info(
-  "[시범공개] [5E v0.36.1] Pick R (or press R), drag on the canvas to draw a\n" +
+  "[시범공개] [5E v0.36.2] Pick R (or press R), drag on the canvas to draw a\n" +
     "Press 'd' to toggle the live coord-debug overlay (pointer?봶orld mapping).\n" +
     "rectangle. Verify with:\n" +
     "  phyDraw.objects()        // array of committed rect objects\n" +

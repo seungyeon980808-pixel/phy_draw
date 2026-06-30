@@ -81,6 +81,26 @@
 | E7 | 전체 PNG export | 아트보드 영역 전체가 흰 배경 PNG로 정상 출력 | | | |
 | E8 | 전체 SVG export | 아트보드 영역 전체가 투명 배경 SVG로 정상 출력 | | | |
 
+## F. 목업 이미지→객체 가져오기 (v0.36.2 추가)
+
+픽스처: `docs/qa-fixtures/image_to_object_mock_v1.json` · 기대값: `image_to_object_mock_v1_expected.md`
+경로: 좌측 패널 **고급 기능 → "이미지 → 객체 (목업)"**.
+
+| ID | 확인 항목 | 기대 결과 | 실제 결과 | Pass/Fail | 비고 |
+|----|-----------|-----------|-----------|-----------|------|
+| F1 | 목업 JSON 가져오기 | 요약 "가져올 객체 10개 · 건너뛴 객체 3개" 표시 | | | |
+| F2 | 지원 객체 변환 | line·arrow(→line)·rect·circle/ellipse·triangle·polyline·text·labeler·anglearc 삽입 | | | |
+| F3 | 미지원/오류 객체 | spline·p2누락 line·text누락 3건이 경고와 함께 건너뜀, 앱 크래시 없음 | | | |
+| F4 | 삽입 후 편집 | 삽입 객체가 선택·이동·편집 가능, 활성도구 V로 복귀 | | | |
+| F5 | 한 번 되돌리기 | Ctrl+Z 1회로 삽입 10개가 한 번에 사라짐(그룹 1스텝) | | | |
+| F6 | 잘못된 입력 | version 불일치/깨진 JSON은 경고만 표시, 현재 작업 보존 | | | |
+| F7 | 삽입 후 내보내기 | 삽입 객체가 전체/선택영역 PNG·SVG에 정상 포함 | | | |
+
+> 검증 메모(코드 감사): 선택영역 내보내기의 화면→월드 변환은 `export-dialog.js`의
+> `screenToWorld()`(SVG 네이티브 `getScreenCTM().inverse()`)를 사용하므로 줌/팬/레터박싱을
+> 모두 반영한다. coord-debug 오버레이(키 `d`)의 `Δscreen ≈ 0`으로 라운드트립이 확인된다.
+> export는 월드 좌표 `bounds`를 viewBox·clip으로 그대로 사용 → 선택 사각형과 일치. (로직 변경 없음)
+
 ---
 
 ### 판정 기준

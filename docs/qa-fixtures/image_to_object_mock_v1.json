@@ -1,0 +1,98 @@
+{
+  "version": "image-to-object-v1",
+  "source": { "width": 1200, "height": 800 },
+  "objects": [
+    {
+      "type": "line",
+      "p1": { "x": 100, "y": 150 },
+      "p2": { "x": 500, "y": 150 },
+      "strokeWidth": 0.3,
+      "confidence": 0.95,
+      "sourceBox": { "x": 98, "y": 146, "w": 404, "h": 8 }
+    },
+    {
+      "type": "arrow",
+      "p1": { "x": 100, "y": 300 },
+      "p2": { "x": 450, "y": 300 },
+      "arrowHead": "end",
+      "strokeWidth": 0.3,
+      "confidence": 0.9
+    },
+    {
+      "type": "rectangle",
+      "x": 600, "y": 120, "w": 300, "h": 200,
+      "strokeWidth": 0.25,
+      "confidence": 0.93
+    },
+    {
+      "type": "circle",
+      "cx": 300, "cy": 550, "r": 120,
+      "confidence": 0.88
+    },
+    {
+      "type": "ellipse",
+      "x": 650, "y": 420, "w": 360, "h": 180,
+      "confidence": 0.85
+    },
+    {
+      "type": "triangle",
+      "x": 950, "y": 520, "w": 200, "h": 200,
+      "confidence": 0.8
+    },
+    {
+      "type": "polyline",
+      "points": [
+        { "x": 100, "y": 700 },
+        { "x": 300, "y": 500 },
+        { "x": 500, "y": 700 }
+      ],
+      "closed": false,
+      "strokeWidth": 0.25,
+      "confidence": 0.82
+    },
+    {
+      "type": "text",
+      "x": 120, "y": 90,
+      "text": "그림 1",
+      "fontSize": 4,
+      "confidence": 0.7
+    },
+    {
+      "type": "labeler",
+      "p1": { "x": 720, "y": 220 },
+      "p2": { "x": 820, "y": 140 },
+      "text": "㉠",
+      "confidence": 0.75
+    },
+    {
+      "type": "anglearc",
+      "x": 100, "y": 700,
+      "radius": 140,
+      "startAngle": 0,
+      "sweepAngle": 45,
+      "label": "θ",
+      "confidence": 0.78
+    },
+    {
+      "type": "spline",
+      "points": [{ "x": 10, "y": 10 }, { "x": 50, "y": 50 }],
+      "confidence": 0.4,
+      "_note": "unsupported type → must be skipped with a warning"
+    },
+    {
+      "type": "line",
+      "p1": { "x": 10, "y": 20 },
+      "confidence": 0.3,
+      "_note": "missing p2 → must be skipped with a warning"
+    },
+    {
+      "type": "text",
+      "x": 200, "y": 760,
+      "confidence": 0.2,
+      "_note": "missing text string → must be skipped with a warning"
+    }
+  ],
+  "warnings": [
+    "예시용 목업 데이터입니다 (실제 이미지 인식 결과 아님)."
+  ]
+}
