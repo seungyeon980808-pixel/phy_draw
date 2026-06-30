@@ -271,6 +271,13 @@ body {
   letter-spacing: 0;
 }
 
+/* Beta label: red "[시범공개]" badge before the program name (brand + footer) */
+.beta-label {
+  color: #d1242f;
+  font-weight: 700;
+  margin-right: 4px;
+}
+
 .btn {
   font-family: inherit;
   font-size: 12px;

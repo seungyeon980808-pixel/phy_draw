@@ -7,7 +7,7 @@
 // `viewBox` mirrors the SVG viewBox and is the ONLY coordinate authority
 // (DESIGN 1-2). Zoom/pan mutate this, never a CSS transform.
 
-import { createStore } from "./store.js?v=0.23.0";
+import { createStore } from "./store.js?v=0.24.0";
 
 /* ===== TEXT FONT OPTIONS (single source for inspector + font modal) =====
  * `css` is used verbatim as both the SVG <text> font-family AND the editor
@@ -45,8 +45,10 @@ export const TEXT_STYLES = [
 ];
 
 // Typographic size presets (points). Stored fontSize is in WORLD units (mm);
-// the UI presents points and converts via MM_PER_PT so 8–72 read naturally.
-export const TEXT_SIZE_PRESETS = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72];
+// the UI presents points and converts via MM_PER_PT so 6–72 read naturally.
+export const TEXT_SIZE_PRESETS = [6, 7, 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36, 48, 72];
+// Minimum selectable/typed text size (points). Inputs clamp to this floor.
+export const MIN_TEXT_PT = 6;
 export const MM_PER_PT = 25.4 / 72;
 export const ptToMm = (pt) => pt * MM_PER_PT;
 export const mmToPt = (mm) => mm / MM_PER_PT;

@@ -1,8 +1,8 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm } from "./state.js?v=0.23.0";
-import { openFontModalForSelection } from "./tools.js?v=0.23.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.23.0";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, mmToPt, ptToMm, MIN_TEXT_PT } from "./state.js?v=0.24.0";
+import { openFontModalForSelection } from "./tools.js?v=0.24.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.24.0";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -208,7 +208,7 @@ export function initInspector(state) {
     state.update((s) => { s.undoStack.push(snap); s.redoStack = []; });
   }
 
-  // (평가원/자유 설정 object-style mode removed in v0.23.0 — objects are always free.)
+  // (평가원/자유 설정 object-style mode removed in v0.24.0 — objects are always free.)
 
   function setButtonDisabled(btn, disabled) {
     btn.disabled = !!disabled;
@@ -940,7 +940,7 @@ export function initInspector(state) {
   fontSizeLbl.textContent = "크기";
   const fontSizeNum = document.createElement("input");
   fontSizeNum.type = "number";
-  fontSizeNum.min = "1";
+  fontSizeNum.min = String(MIN_TEXT_PT);
   fontSizeNum.max = "400";
   fontSizeNum.step = "1";
   fontSizeNum.style.cssText = "width:56px;font-size:11px;border:1px solid #3a3c41;border-radius:3px;padding:2px 4px;text-align:center;background:#1e1f22;color:#dcddde;";
@@ -994,8 +994,11 @@ export function initInspector(state) {
     });
   });
   fontSizeNum.addEventListener("change", () => {
-    const v = parseFloat(fontSizeNum.value); // entered in pt → store mm
-    if (isFinite(v) && v > 0) applyTextProp("fontSize", ptToMm(v));
+    let v = parseFloat(fontSizeNum.value); // entered in pt → store mm
+    if (!isFinite(v)) return;
+    v = Math.max(MIN_TEXT_PT, v);          // clamp to the 6pt floor
+    fontSizeNum.value = v;                 // reflect the clamped value
+    applyTextProp("fontSize", ptToMm(v));
   });
   fontSizeNum.addEventListener("keydown", (e) => { if (e.key === "Enter") fontSizeNum.blur(); });
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>5E</title>
+  <title>[시범공개] 5E</title>
   <link rel="icon" href="data:," />
 
   <!-- ===== FONTS (IBM Plex Sans KR / Mono) ===== -->
@@ -72,7 +72,7 @@
     <!-- ----- CENTER: canvas (the only working panel in 1A) ----- -->
     <main class="panel panel-center">
       <div class="canvas-toolbar">
-        <div class="app-brand" title="5E (sciEnceEducationalExamEasyEditor)">5E</div>
+        <div class="app-brand" title="5E (sciEnceEducationalExamEasyEditor)"><span class="beta-label">[시범공개]</span>5E</div>
         <!-- Undo / Redo (icon-only; sit immediately left of 파일) -->
         <button id="undo-btn" class="topbar-btn icon-btn" type="button"
                 title="되돌리기 (Ctrl+Z)" aria-label="되돌리기" disabled>↶</button>
@@ -177,11 +177,11 @@
 
   <!-- ===== FOOTER: version + date ===== -->
   <footer class="app-footer">
-    5E (sciEnceEducationalExamEasyEditor) · 과학 교사를 위한 시험문제 그림 제작 도구 · <strong>v0.23.0</strong> · 2026-06-30
+    <span class="beta-label">[시범공개]</span> 5E (sciEnceEducationalExamEasyEditor) · 과학 교사를 위한 시험문제 그림 제작 도구 · <strong>v0.24.0</strong> · 2026-06-30
   </footer>
 
   <!-- ===== MODULES (load order matters: store → state → viewport → render → main) ===== -->
   <!-- ?v= busts the ES-module cache so edits actually load (DESIGN: cache-bust) -->
-  <script type="module" src="js/main.js?v=0.23.0"></script>
+  <script type="module" src="js/main.js?v=0.24.0"></script>
 </body>
 </html>

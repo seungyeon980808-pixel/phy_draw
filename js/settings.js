@@ -17,15 +17,15 @@ import {
   TEXT_STYLES,
   DEFAULT_TEXT_FONT,
   DEFAULT_TEXT_SIZE_MM,
-} from "./state.js?v=0.23.0";
-import { registerTopMenu } from "./top-menu.js?v=0.23.0";
+} from "./state.js?v=0.24.0";
+import { registerTopMenu } from "./top-menu.js?v=0.24.0";
 
 /* ----- defaults schema + localStorage load/save ----- */
 const DEFAULTS_KEY = "phyDraw.defaults";
 const FACTORY_DEFAULTS = {
   strokeWidth: 0.2,      // mm
   strokeLevel: 0,        // 0 = black
-  fillLevel: 214,
+  fillLevel: 255,        // opaque white default for new shapes
   textSizeMm: DEFAULT_TEXT_SIZE_MM,  // matches DEFAULT_TEXT_SIZE_MM
   textFont: DEFAULT_TEXT_FONT,       // css font-family string
   textWeight: "normal",

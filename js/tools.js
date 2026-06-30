@@ -11,17 +11,17 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.23.0";
+import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.24.0";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
-  TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt,
-} from "./state.js?v=0.23.0";
+  TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt, MIN_TEXT_PT,
+} from "./state.js?v=0.24.0";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.23.0";
-import { resolveEndpointSnap } from "./snap.js?v=0.23.0";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.23.0";
-import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.23.0";
+import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.24.0";
+import { resolveEndpointSnap } from "./snap.js?v=0.24.0";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.24.0";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.24.0";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -1149,7 +1149,7 @@ function makeShape(type, a, b) {
     rotation: 0,
     strokeLevel: 0,        // 0 = black (DESIGN 2-2)
     strokeWidth: DEFAULT_STROKE_WIDTH,
-    fillLevel: 214,
+    fillLevel: 255,        // opaque white default for new shapes
     fillNone: false,
     fillStyle: "solid",   // "solid" | "dots" | "cross" | "hatch"
     dashLength: 0,
@@ -1291,7 +1291,7 @@ function makePolyline(points) {
     dashGap: 0,            // world units (mm); 0 = solid
     // ----- closed-fill props: a closed polyline behaves like a fillable shape -----
     closed: false,         // false = open <polyline>; true = filled <polygon>
-    fillLevel: 214,        // mark/solid shade when closed
+    fillLevel: 255,        // opaque white default for new shapes (mark shade when closed)
     fillNone: false,
     fillStyle: "solid",    // "solid" | "dots" | "cross" | "hatch"
     // ----- 경사면처리 (corner-rounding): render-time fillet, never mutates points[] -----
@@ -1319,7 +1319,7 @@ function makeCurve(points) {
     dashGap: 0,            // world units (mm); 0 = solid
     // ----- closed-fill props: a closed curve behaves like a fillable shape -----
     closed: false,         // false = open <path>; true = smoothly-closed filled <path>
-    fillLevel: 214,        // mark/solid shade when closed
+    fillLevel: 255,        // opaque white default for new shapes (mark shade when closed)
     fillNone: false,
     fillStyle: "solid",    // "solid" | "dots" | "cross" | "hatch"
     locked: false,
@@ -1640,7 +1640,7 @@ function _buildUnifiedStyleControls() {
     _state.update((s) => {
       if (!s.draftText) return;
       s.draftText.fontFamily = _textFontSelect.value || DEFAULT_TEXT_FONT;
-      s.draftText.fontSize = ptToMm(Math.max(1, parseFloat(_textSizeInput.value) || mmToPt(DEFAULT_TEXT_SIZE_MM)));
+      s.draftText.fontSize = ptToMm(Math.max(MIN_TEXT_PT, parseFloat(_textSizeInput.value) || mmToPt(DEFAULT_TEXT_SIZE_MM)));
       s.draftText.italic = _textItalicInput.getAttribute("aria-pressed") === "true";
       s.draftText.fontStyle = s.draftText.italic ? "italic" : "normal";
       s.draftText.fontWeight = _textBoldInput.getAttribute("aria-pressed") === "true" ? "bold" : "normal";
@@ -2537,7 +2537,7 @@ function _buildFontModal() {
   const szLbl = document.createElement("label");
   szLbl.className = "fm-label"; szLbl.textContent = "크기";
   _fmSizeInput = document.createElement("input");
-  _fmSizeInput.type = "number"; _fmSizeInput.min = "1"; _fmSizeInput.max = "400"; _fmSizeInput.step = "1";
+  _fmSizeInput.type = "number"; _fmSizeInput.min = String(MIN_TEXT_PT); _fmSizeInput.max = "400"; _fmSizeInput.step = "1";
   _fmSizeInput.className = "fm-size-input";
   _fmSizeList = document.createElement("select");
   _fmSizeList.className = "fm-list"; _fmSizeList.size = 6;
@@ -2678,7 +2678,7 @@ function _applyFontModal() {
     italic:     w.italic === true,
     underline:  w.underline,
     strikeout:  w.strikeout,
-    fontSize:   ptToMm(w.pt),
+    fontSize:   ptToMm(Math.max(MIN_TEXT_PT, w.pt)),
   };
   if (_fmTarget.kind === "object") {
     _state.update((s) => {
