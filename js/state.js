@@ -7,12 +7,16 @@
 // `viewBox` mirrors the SVG viewBox and is the ONLY coordinate authority
 // (DESIGN 1-2). Zoom/pan mutate this, never a CSS transform.
 
-import { createStore } from "./store.js?v=0.25.0";
+import { createStore } from "./store.js?v=0.26.0";
 
 /* ===== TEXT FONT OPTIONS (single source for inspector + font modal) =====
  * `css` is used verbatim as both the SVG <text> font-family AND the editor
  * caret font, so draft and committed text always resolve the same font. */
 export const TEXT_FONTS = [
+  // Default: system gothic stack by NAME (no @font-face / no embedding).
+  // Windows resolves 돋움; macOS falls back to Apple SD Gothic Neo. Export
+  // renders from the exporting machine's installed font (no inlining).
+  { label: "돋움 (시스템)",      css: '"돋움", Dotum, "Apple SD Gothic Neo", "맑은 고딕", "Malgun Gothic", sans-serif' },
   { label: "함초롬바탕",        css: '"HamchoromBatang", serif' },
   { label: "신명중명조",        css: '"신명중명조", "바탕", serif' },
   { label: "IBM Plex Sans KR", css: "'IBM Plex Sans KR', sans-serif" },
