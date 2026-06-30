@@ -11,17 +11,17 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.32.0";
+import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.32.1";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt, MIN_TEXT_PT,
-} from "./state.js?v=0.32.0";
+} from "./state.js?v=0.32.1";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.32.0";
-import { resolveEndpointSnap } from "./snap.js?v=0.32.0";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.32.0";
-import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.32.0";
+import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.32.1";
+import { resolveEndpointSnap } from "./snap.js?v=0.32.1";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.32.1";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.32.1";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)

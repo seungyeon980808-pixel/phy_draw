@@ -7,10 +7,10 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.32.0";
-import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.32.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.32.0";
-import { renderFormula } from "./formula.js?v=0.32.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.32.1";
+import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM, TOOL_LABEL_FONT_FAMILY } from "./state.js?v=0.32.1";
+import { resolveObjectStyle } from "./style-mode.js?v=0.32.1";
+import { renderFormula } from "./formula.js?v=0.32.1";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -689,20 +689,19 @@ export function renderObject(obj) {
  * rotated shape, never inside the rotation group), in the default font, and IS
  * included in export (it lives in renderObject's output). Returns an SVG <text>
  * node, or null when there's no label text. */
-// Object/line labels (Group 6): default to an ITALIC SERIF stack by NAME. 신명중명조
-// is commercial/non-embeddable, so we name a 기울임 명조 look that resolves cross-
-// platform (Windows 바탕/Batang, macOS AppleMyungjo) so Latin variables (d/m/F)
-// render as italic serif. Size is per-object (obj.labelSize), default below.
-const LABEL_FONT = '"신명조", "바탕", Batang, "AppleMyungjo", serif';
-function makeUprightLabel(text, x, y, color, sizeMm = DEFAULT_TEXT_SIZE_MM) {
+// Physics/tool labels use the HWP equation font first, then system serif
+// fallbacks. Variable labels stay italic by caller choice; callout text is normal.
+const LABEL_FONT = TOOL_LABEL_FONT_FAMILY;
+function makeUprightLabel(text, x, y, color, sizeMm = DEFAULT_TEXT_SIZE_MM, options = {}) {
   const s = String(text ?? "");
   if (!s) return null;
+  const italic = options.italic !== false;
   const t = document.createElementNS(SVG_NS, "text");
   t.setAttribute("x", x);
   t.setAttribute("y", y);
   t.setAttribute("font-size", sizeMm);
   t.setAttribute("font-family", LABEL_FONT);
-  t.setAttribute("font-style", "italic");
+  t.setAttribute("font-style", italic ? "italic" : "normal");
   t.setAttribute("fill", color);
   t.setAttribute("text-anchor", "middle");
   t.setAttribute("dominant-baseline", "central");
@@ -712,7 +711,19 @@ function makeUprightLabel(text, x, y, color, sizeMm = DEFAULT_TEXT_SIZE_MM) {
   t.setAttribute("stroke", "white");
   t.setAttribute("stroke-width", sizeMm * 0.16);
   t.setAttribute("stroke-linejoin", "round");
-  t.textContent = s;
+  const lines = s.split("\n");
+  if (lines.length === 1) {
+    t.textContent = lines[0];
+  } else {
+    const lineHeight = sizeMm * 1.2;
+    lines.forEach((line, i) => {
+      const ts = document.createElementNS(SVG_NS, "tspan");
+      ts.setAttribute("x", x);
+      ts.setAttribute("dy", i === 0 ? -lineHeight * (lines.length - 1) / 2 : lineHeight);
+      ts.textContent = line || "\u00a0";
+      t.appendChild(ts);
+    });
+  }
   return t;
 }
 
@@ -1462,7 +1473,7 @@ function renderAxes(obj) {
     t.setAttribute("y", ly);
     t.setAttribute("font-size", labelSize);
     t.setAttribute("font-style", "italic");
-    t.setAttribute("font-family", obj.fontFamily || DEFAULT_TEXT_FONT);
+    t.setAttribute("font-family", TOOL_LABEL_FONT_FAMILY);
     t.setAttribute("fill", color);
     t.setAttribute("text-anchor", anchor);
     t.setAttribute("dominant-baseline", baseline);
@@ -1538,7 +1549,7 @@ function renderAngleArc(obj) {
     t.setAttribute("y", vy - lr * Math.sin(rad));
     t.setAttribute("font-size", labelSize);
     t.setAttribute("font-style", "italic");
-    t.setAttribute("font-family", obj.fontFamily || DEFAULT_TEXT_FONT);
+    t.setAttribute("font-family", TOOL_LABEL_FONT_FAMILY);
     t.setAttribute("fill", color);
     t.setAttribute("text-anchor", "middle");
     t.setAttribute("dominant-baseline", "middle");
@@ -1553,7 +1564,7 @@ function renderAngleArc(obj) {
  * NAME label (이름). Data: p1 = anchor (on/near the graph), p2 = label position,
  * text = label content (circled-letter preset by default), labelSize = mm. The
  * leader runs from p1 toward p2 but stops a SMALL gap short of p2, then the upright
- * (non-rotating) label sits at p2 in the default italic-serif label font
+ * (non-rotating) label sits at p2 in the tool label font, upright/normal
  * (makeUprightLabel, Group 6 / v0.31.0). Pure projection — both points are the
  * truth and round-trip on save/load. ----- */
 function renderLabeler(obj) {
@@ -1584,8 +1595,8 @@ function renderLabeler(obj) {
   line.setAttribute("stroke-linecap", "round");
   g.appendChild(line);
 
-  // Upright (non-rotating) label at p2, default italic-serif label font.
-  const lbl = makeUprightLabel(obj.text, b.x, b.y, color, size);
+  // Upright (non-rotating) callout text at p2 in the tool label font.
+  const lbl = makeUprightLabel(obj.text, b.x, b.y, color, size, { italic: false });
   if (lbl) g.appendChild(lbl);
 
   return g;
@@ -1826,7 +1837,7 @@ function drawScale(g, obj, sw, color) {
   display.setAttribute("stroke", color);
   display.setAttribute("stroke-width", sw * 0.8);
   g.appendChild(display);
-  cText(g, x + w * 0.37, y + h * 0.555, obj.displayText || "0.99 N", Math.min(w * 0.105, h * 0.21), color, obj.fontFamily || DEFAULT_TEXT_FONT);
+  cText(g, x + w * 0.37, y + h * 0.555, obj.displayText || "0.99 N", Math.min(w * 0.105, h * 0.21), color);
   oDot(g, x + w * 0.72, y + h * 0.55, h * 0.07, color);
   oDot(g, x + w * 0.83, y + h * 0.55, h * 0.07, color);
   const footY = y + h * 0.83;
@@ -1911,7 +1922,7 @@ function cLine(a, b, sw, color) {
   return l;
 }
 // A centered glyph (shared by circle-body elements + diode terminal labels + optics label).
-function cText(g, x, y, text, size, color, fontFamily = DEFAULT_TEXT_FONT) {
+function cText(g, x, y, text, size, color, fontFamily = TOOL_LABEL_FONT_FAMILY) {
   const t = document.createElementNS(SVG_NS, "text");
   t.setAttribute("x", x); t.setAttribute("y", y);
   t.setAttribute("font-size", size);
@@ -2108,7 +2119,7 @@ function renderCircuit(obj) {
   (CIRCUIT_ELEMENTS[obj.element] || CIRCUIT_ELEMENTS.resistor)(g, geo, sw, color, obj);
 
   // Shared skeleton — label: a single text just above the box (only if non-empty),
-  // using the world-unit text convention (DEFAULT_TEXT_SIZE_MM, DEFAULT_TEXT_FONT).
+  // using the world-unit physics/tool label convention.
   if ((obj.label ?? "") !== "") {
     const size = DEFAULT_TEXT_SIZE_MM;
     // Offset along the perpendicular toward screen-up (smaller y) so the label
@@ -2119,7 +2130,7 @@ function renderCircuit(obj) {
     t.setAttribute("x", mid.x + px * off * sign);
     t.setAttribute("y", mid.y + py * off * sign);
     t.setAttribute("font-size", size);
-    t.setAttribute("font-family", obj.fontFamily || DEFAULT_TEXT_FONT);
+    t.setAttribute("font-family", TOOL_LABEL_FONT_FAMILY);
     t.setAttribute("fill", color);
     t.setAttribute("text-anchor", "middle");
     t.setAttribute("dominant-baseline", "middle");
@@ -2348,7 +2359,7 @@ function renderOptics(obj) {
   // Optional label below the bbox (toggled by showLabel, like the anglearc label).
   if (obj.showLabel && (obj.label ?? "") !== "") {
     const size = DEFAULT_TEXT_SIZE_MM;
-    cText(g, obj.x + obj.w / 2, obj.y + obj.h + size * 0.8, obj.label, size, color, obj.fontFamily || DEFAULT_TEXT_FONT);
+    cText(g, obj.x + obj.w / 2, obj.y + obj.h + size * 0.8, obj.label, size, color);
   }
 
   const rot = obj.rotation ?? 0;
@@ -2370,7 +2381,7 @@ function renderOptics(obj) {
     const ly = (obj.labelPos ?? "above") === "below"
       ? cy + dotR + size * 0.7
       : cy - dotR - size * 0.7;
-    cText(wrap, cx, ly, obj.label, size, color, obj.fontFamily || DEFAULT_TEXT_FONT);
+    cText(wrap, cx, ly, obj.label, size, color);
     return wrap;
   }
   return g;

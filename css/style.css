@@ -51,6 +51,9 @@
 
 /* ===== TOKENS (legacy aliases → resolve against the active theme) ===== */
 :root {
+  --font-normal-text: "돋움", "Dotum", "Apple SD Gothic Neo", "맑은 고딕", "Malgun Gothic", sans-serif;
+  --font-tool-label: "HYhwpEQ", "HWhwpEQ", "신명중명조", "Shin Myeongjo", "SMMyungJo", "Times New Roman", "Batang", "바탕", serif;
+
   --c-main: var(--accent);
   --c-sub: var(--text-label);
   --c-text: var(--text-primary);
@@ -820,7 +823,7 @@ body {
   padding: 0 0.75em 0 0;
   box-sizing: content-box;
   margin: 0;
-  font-family: "IBM Plex Sans KR", sans-serif;
+  font-family: var(--font-normal-text);
   font-size: 14px;
   font-weight: 400;
   line-height: 1.4;

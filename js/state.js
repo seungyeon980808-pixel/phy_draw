@@ -7,7 +7,10 @@
 // `viewBox` mirrors the SVG viewBox and is the ONLY coordinate authority
 // (DESIGN 1-2). Zoom/pan mutate this, never a CSS transform.
 
-import { createStore } from "./store.js?v=0.32.0";
+import { createStore } from "./store.js?v=0.32.1";
+
+export const TEXT_FONT_FAMILY = '"돋움", "Dotum", "Apple SD Gothic Neo", "맑은 고딕", "Malgun Gothic", sans-serif';
+export const TOOL_LABEL_FONT_FAMILY = '"HYhwpEQ", "HWhwpEQ", "신명중명조", "Shin Myeongjo", "SMMyungJo", "Times New Roman", "Batang", "바탕", serif';
 
 /* ===== TEXT FONT OPTIONS (single source for inspector + font modal) =====
  * `css` is used verbatim as both the SVG <text> font-family AND the editor
@@ -16,7 +19,7 @@ export const TEXT_FONTS = [
   // Default: system gothic stack by NAME (no @font-face / no embedding).
   // Windows resolves 돋움; macOS falls back to Apple SD Gothic Neo. Export
   // renders from the exporting machine's installed font (no inlining).
-  { label: "돋움 (시스템)",      css: '"돋움", Dotum, "Apple SD Gothic Neo", "맑은 고딕", "Malgun Gothic", sans-serif' },
+  { label: "돋움 (시스템)",      css: TEXT_FONT_FAMILY },
   { label: "함초롬바탕",        css: '"HamchoromBatang", serif' },
   { label: "신명중명조",        css: '"신명중명조", "바탕", serif' },
   { label: "IBM Plex Sans KR", css: "'IBM Plex Sans KR', sans-serif" },
@@ -29,7 +32,7 @@ export const TEXT_FONTS = [
   { label: "sans-serif",       css: "sans-serif" },
   { label: "고정폭 (monospace)", css: "monospace" },
 ];
-export const DEFAULT_TEXT_FONT = TEXT_FONTS[0].css;
+export const DEFAULT_TEXT_FONT = TEXT_FONT_FAMILY;
 // On-screen px the new-text caret/glyph targets; converted to world units at
 // creation via the true render scale (see tools.js setupTextTool).
 export const DEFAULT_TEXT_SIZE_PX = 14;
