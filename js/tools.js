@@ -11,17 +11,19 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.32.4";
+import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.32.5";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt, MIN_TEXT_PT,
-} from "./state.js?v=0.32.4";
+  EQUATION_FONT_FAMILY,
+  isEquationFontFamily, resolveTextFontStyle, resolveTextLetterSpacing,
+} from "./state.js?v=0.32.5";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.32.4";
-import { resolveEndpointSnap } from "./snap.js?v=0.32.4";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.32.4";
-import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.32.4";
+import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.32.5";
+import { resolveEndpointSnap } from "./snap.js?v=0.32.5";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.32.5";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.32.5";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -1779,7 +1781,7 @@ const FORMULA_SYMBOLS = ["θ", "λ", "Δ", "μ", "π", "→", "←", "±", "×",
 const EDITOR_FONT_OPTIONS = [
   { label: "기본 (돋움)", css: TEXT_FONTS[0]?.css || DEFAULT_TEXT_FONT },
   { label: "기본 명조", css: "serif" },
-  { label: "수식", css: "'Times New Roman', serif" },
+  { label: "수식", css: EQUATION_FONT_FAMILY },
   { label: "고딕", css: "'Malgun Gothic', sans-serif" },
 ];
 
@@ -1900,10 +1902,14 @@ function _buildUnifiedStyleControls() {
     _state.update((s) => {
       if (!s.draftText) return;
       s.draftText.fontFamily = _textFontSelect.value || DEFAULT_TEXT_FONT;
+      if (isEquationFontFamily(s.draftText.fontFamily)) {
+        _textItalicInput.setAttribute("aria-pressed", "true");
+      }
       s.draftText.fontSize = ptToMm(Math.max(MIN_TEXT_PT, parseFloat(_textSizeInput.value) || mmToPt(DEFAULT_TEXT_SIZE_MM)));
       s.draftText.italic = _textItalicInput.getAttribute("aria-pressed") === "true";
-      s.draftText.fontStyle = s.draftText.italic ? "italic" : "normal";
+      s.draftText.fontStyle = resolveTextFontStyle(s.draftText);
       s.draftText.fontWeight = _textBoldInput.getAttribute("aria-pressed") === "true" ? "bold" : "normal";
+      s.draftText.letterSpacing = resolveTextLetterSpacing(s.draftText);
     });
     _syncEditorFont();
     _refreshUnifiedPreview();
@@ -1946,7 +1952,7 @@ function _syncUnifiedStyleControls() {
     }
     _textSizeInput.value = pt;
   }
-  if (_textItalicInput) _textItalicInput.setAttribute("aria-pressed", dt.italic === true ? "true" : "false");
+  if (_textItalicInput) _textItalicInput.setAttribute("aria-pressed", (dt.italic === true || isEquationFontFamily(dt.fontFamily)) ? "true" : "false");
   if (_textBoldInput) _textBoldInput.setAttribute("aria-pressed", (dt.fontWeight || "normal") === "bold" ? "true" : "false");
 }
 
@@ -1961,8 +1967,9 @@ function _refreshUnifiedPreview() {
     plain.className = "plain-preview";
     plain.style.fontFamily = dt.fontFamily || DEFAULT_TEXT_FONT;
     plain.style.fontSize = `${Math.max(10, mmToPt(dt.fontSize || DEFAULT_TEXT_SIZE_MM))}pt`;
-    plain.style.fontStyle = dt.italic === true ? "italic" : "normal";
+    plain.style.fontStyle = resolveTextFontStyle(dt);
     plain.style.fontWeight = dt.fontWeight || "normal";
+    plain.style.letterSpacing = resolveTextLetterSpacing(dt) || "";
     plain.textContent = raw;
     _textPreview.appendChild(plain);
     return;
@@ -1972,7 +1979,7 @@ function _refreshUnifiedPreview() {
     const font = {
       family: dt.fontFamily || DEFAULT_TEXT_FONT,
       weight: dt.fontWeight || "normal",
-      style: dt.italic ? "italic" : "normal",
+      style: resolveTextFontStyle(dt),
     };
     const m = measureFormula(src, dt.fontSize || DEFAULT_TEXT_SIZE_MM, font);
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -1983,7 +1990,8 @@ function _refreshUnifiedPreview() {
       fontSize: dt.fontSize || DEFAULT_TEXT_SIZE_MM,
       fontFamily: dt.fontFamily || DEFAULT_TEXT_FONT,
       fontWeight: dt.fontWeight || "normal",
-      italic: dt.italic === true,
+      italic: resolveTextFontStyle(dt) === "italic",
+      letterSpacing: resolveTextLetterSpacing(dt),
     }));
     _textPreview.appendChild(svg);
   } catch (err) {
@@ -2199,7 +2207,8 @@ function _syncEditorFont() {
   _textEditor.style.fontSize   = (dt.fontSize * getRenderScale()) + "px";
   _textEditor.style.fontFamily = dt.fontFamily || DEFAULT_TEXT_FONT;
   _textEditor.style.fontWeight = dt.fontWeight || "normal";
-  _textEditor.style.fontStyle  = dt.italic === true ? "italic" : "normal";
+  _textEditor.style.fontStyle  = resolveTextFontStyle(dt);
+  _textEditor.style.letterSpacing = resolveTextLetterSpacing(dt) || "";
   const deco = [];
   if (dt.underline) deco.push("underline");
   if (dt.strikeout) deco.push("line-through");
@@ -2284,7 +2293,7 @@ function _commitText() {
           const m = measureFormula(normalizedSource, dt.fontSize, {
             family: dt.fontFamily || DEFAULT_TEXT_FONT,
             weight: dt.fontWeight || "normal",
-            style: dt.italic === true ? "italic" : "normal",
+            style: resolveTextFontStyle(dt),
           });
           o.w = m.w; o.h = m.h;
           delete o.text;
@@ -2299,8 +2308,9 @@ function _commitText() {
         o.fontSize = dt.fontSize;
         o.fontFamily = dt.fontFamily;
         o.fontWeight = dt.fontWeight;
-        o.fontStyle = dt.italic === true ? "italic" : "normal";
-        o.italic = dt.italic === true;
+        o.fontStyle = resolveTextFontStyle(dt);
+        o.italic = resolveTextFontStyle(dt) === "italic";
+        o.letterSpacing = resolveTextLetterSpacing(dt);
         o.underline = dt.underline;
         o.strikeout = dt.strikeout;
       }
@@ -2314,8 +2324,10 @@ function _commitText() {
         id,
         x: dt.x, y: dt.y,
         fontSize: dt.fontSize, fontFamily: dt.fontFamily,
-        fontWeight: dt.fontWeight, fontStyle: dt.italic === true ? "italic" : "normal",
-        italic: dt.italic === true, underline: dt.underline, strikeout: dt.strikeout,
+        fontWeight: dt.fontWeight, fontStyle: resolveTextFontStyle(dt),
+        italic: resolveTextFontStyle(dt) === "italic",
+        letterSpacing: resolveTextLetterSpacing(dt),
+        underline: dt.underline, strikeout: dt.strikeout,
         rotation: 0, locked: false, positionLocked: false,
         layerId: s.activeLayerId, order: s.objects.length,
       };
@@ -2324,7 +2336,7 @@ function _commitText() {
             const m = measureFormula(normalizedSource, dt.fontSize, {
               family: dt.fontFamily || DEFAULT_TEXT_FONT,
               weight: dt.fontWeight || "normal",
-              style: dt.italic === true ? "italic" : "normal",
+              style: resolveTextFontStyle(dt),
             });
             return applyNewObjectStyleDefaults({
               ...common,

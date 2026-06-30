@@ -7,12 +7,37 @@
 // `viewBox` mirrors the SVG viewBox and is the ONLY coordinate authority
 // (DESIGN 1-2). Zoom/pan mutate this, never a CSS transform.
 
-import { createStore } from "./store.js?v=0.32.4";
+import { createStore } from "./store.js?v=0.32.5";
 
 export const TEXT_FONT_FAMILY = '"돋움", "Dotum", "Apple SD Gothic Neo", "맑은 고딕", "Malgun Gothic", sans-serif';
-export const TOOL_LABEL_FONT_FAMILY = '"HYhwpEQ", "HWhwpEQ", "Cambria Math", "Times New Roman", "Batang", "바탕", serif';
+export const EQUATION_FONT_FAMILY = '"HYhwpEQ", "HWhwpEQ", "Cambria Math", "Times New Roman", "Batang", "바탕", serif';
+export const EQUATION_FONT_STYLE = "italic";
+export const EQUATION_LETTER_SPACING = "-0.04em";
+export const TOOL_LABEL_FONT_FAMILY = EQUATION_FONT_FAMILY;
 export const VARIABLE_LABEL_FONT_STYLE = "italic";
 export const CALLOUT_LABEL_FONT_STYLE = "normal";
+
+function normalizeFontFamily(value) {
+  return String(value || "")
+    .replace(/['"]/g, "")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+}
+
+export function isEquationFontFamily(value) {
+  const normalized = normalizeFontFamily(value);
+  return normalized === normalizeFontFamily(EQUATION_FONT_FAMILY) ||
+    normalized.startsWith("hyhwpeq,");
+}
+
+export function resolveTextFontStyle(obj = {}) {
+  if (isEquationFontFamily(obj.fontFamily)) return EQUATION_FONT_STYLE;
+  return obj.italic === true || obj.fontStyle === "italic" ? "italic" : "normal";
+}
+
+export function resolveTextLetterSpacing(obj = {}) {
+  return isEquationFontFamily(obj.fontFamily) ? EQUATION_LETTER_SPACING : null;
+}
 
 /* ===== TEXT FONT OPTIONS (single source for inspector + font modal) =====
  * `css` is used verbatim as both the SVG <text> font-family AND the editor

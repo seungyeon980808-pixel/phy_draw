@@ -7,17 +7,20 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.32.4";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.32.5";
 import {
   DEFAULT_TEXT_FONT,
   DEFAULT_TEXT_SIZE_MM,
   CIRCUIT_BODY_MM,
   TOOL_LABEL_FONT_FAMILY,
+  EQUATION_LETTER_SPACING,
   VARIABLE_LABEL_FONT_STYLE,
   CALLOUT_LABEL_FONT_STYLE,
-} from "./state.js?v=0.32.4";
-import { resolveObjectStyle } from "./style-mode.js?v=0.32.4";
-import { renderFormula } from "./formula.js?v=0.32.4";
+  resolveTextFontStyle,
+  resolveTextLetterSpacing,
+} from "./state.js?v=0.32.5";
+import { resolveObjectStyle } from "./style-mode.js?v=0.32.5";
+import { renderFormula } from "./formula.js?v=0.32.5";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -869,22 +872,31 @@ function applyDash(el, obj) {
   if (dl > 0 && dg > 0) el.setAttribute("stroke-dasharray", `${dl} ${dg}`);
 }
 
-function textFontStyle(obj) {
-  return obj.italic === true ? "italic" : "normal";
-}
-
 function variableLabelFontStyle() {
   return VARIABLE_LABEL_FONT_STYLE;
 }
 
+function applySvgTextFont(t, { family, style = "normal", weight = null, letterSpacing = null }) {
+  t.setAttribute("font-family", family || DEFAULT_TEXT_FONT);
+  t.setAttribute("font-style", style || "normal");
+  if (weight) t.setAttribute("font-weight", weight);
+  if (letterSpacing) t.setAttribute("letter-spacing", letterSpacing);
+  else t.removeAttribute("letter-spacing");
+}
+
 function applyVariableLabelFont(t) {
-  t.setAttribute("font-family", TOOL_LABEL_FONT_FAMILY);
-  t.setAttribute("font-style", variableLabelFontStyle());
+  applySvgTextFont(t, {
+    family: TOOL_LABEL_FONT_FAMILY,
+    style: variableLabelFontStyle(),
+    letterSpacing: EQUATION_LETTER_SPACING,
+  });
 }
 
 function applyCalloutLabelFont(t) {
-  t.setAttribute("font-family", DEFAULT_TEXT_FONT);
-  t.setAttribute("font-style", CALLOUT_LABEL_FONT_STYLE);
+  applySvgTextFont(t, {
+    family: DEFAULT_TEXT_FONT,
+    style: CALLOUT_LABEL_FONT_STYLE,
+  });
 }
 
 /* ----- point + travel direction at 50% of a polyline's total path length ----- */
@@ -1355,10 +1367,13 @@ function renderText(obj) {
   el.setAttribute("y", obj.y);
   el.setAttribute("font-size", obj.fontSize);
   el.setAttribute("fill", "#0d1117");
-  el.setAttribute("font-family", obj.fontFamily || DEFAULT_TEXT_FONT);
   // Style fields — safe defaults so old text objects (without them) still render.
-  el.setAttribute("font-weight", obj.fontWeight || "normal");
-  el.setAttribute("font-style", textFontStyle(obj));
+  applySvgTextFont(el, {
+    family: obj.fontFamily || DEFAULT_TEXT_FONT,
+    style: resolveTextFontStyle(obj),
+    weight: obj.fontWeight || "normal",
+    letterSpacing: resolveTextLetterSpacing(obj),
+  });
   const deco = [];
   if (obj.underline) deco.push("underline");
   if (obj.strikeout) deco.push("line-through");
@@ -1942,8 +1957,11 @@ function cText(g, x, y, text, size, color, fontFamily = null, fontStyle = null) 
   t.setAttribute("x", x); t.setAttribute("y", y);
   t.setAttribute("font-size", size);
   if (fontFamily || fontStyle) {
-    t.setAttribute("font-family", fontFamily || TOOL_LABEL_FONT_FAMILY);
-    t.setAttribute("font-style", fontStyle || variableLabelFontStyle());
+    applySvgTextFont(t, {
+      family: fontFamily || TOOL_LABEL_FONT_FAMILY,
+      style: fontStyle || variableLabelFontStyle(),
+      letterSpacing: fontFamily ? resolveTextLetterSpacing({ fontFamily }) : EQUATION_LETTER_SPACING,
+    });
   } else {
     applyVariableLabelFont(t);
   }

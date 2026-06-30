@@ -22,7 +22,12 @@
  * source degrades to literal text rather than blanking the canvas.
  */
 
-import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM } from "./state.js?v=0.32.4";
+import {
+  DEFAULT_TEXT_FONT,
+  DEFAULT_TEXT_SIZE_MM,
+  resolveTextFontStyle,
+  resolveTextLetterSpacing,
+} from "./state.js?v=0.32.5";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 // Glyph + rule ink. Mirrors renderText(), which always paints #0d1117 (text has
@@ -163,7 +168,9 @@ function layoutText(value, F, font) {
       t.setAttribute("font-size", F);
       t.setAttribute("font-family", font.family);
       if (font.weight && font.weight !== "normal") t.setAttribute("font-weight", font.weight);
-      if (font.style === "italic") t.setAttribute("font-style", "italic");
+      t.setAttribute("font-style", resolveTextFontStyle({ fontFamily: font.family, fontStyle: font.style }));
+      const letterSpacing = resolveTextLetterSpacing({ fontFamily: font.family });
+      if (letterSpacing) t.setAttribute("letter-spacing", letterSpacing);
       t.setAttribute("fill", INK);
       t.setAttribute("text-anchor", "start");
       t.textContent = value;
@@ -320,7 +327,7 @@ function fontOf(obj) {
   return {
     family: obj.fontFamily || DEFAULT_TEXT_FONT,
     weight: obj.fontWeight || "normal",
-    style: obj.italic ? "italic" : "normal",
+    style: resolveTextFontStyle(obj),
   };
 }
 
