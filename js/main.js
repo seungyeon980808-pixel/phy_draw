@@ -7,19 +7,19 @@
 //   4. init tools (tool selection + the rectangle draw pipeline).
 
 // ?v= matches index.html so a version bump reloads every module, not just main.
-import { state } from "./state.js?v=0.33.0";
-import { render } from "./render.js?v=0.33.0";
-import { initViewport, getZoom, screenToWorld, centerView, setCenterLocked } from "./viewport.js?v=0.33.0";
-import { initTools } from "./tools.js?v=0.33.0";
-import { initTransform, undo, redo } from "./transform.js?v=0.33.0";
-import { initInspector } from "./inspector.js?v=0.33.0";
-import { initProjectIO } from "./project-io.js?v=0.33.0";
-import { initExportDialog } from "./export-dialog.js?v=0.33.0";
-import { initRuler, setRulerVisible } from "./ruler.js?v=0.33.0";
-import { initSettings } from "./settings.js?v=0.33.0";
-import { initImageObjectify } from "./image-objectify.js?v=0.33.0";
-import { initTemplates } from "./templates.js?v=0.33.0";
-import { initObjectSearch } from "./search.js?v=0.33.0";
+import { state } from "./state.js?v=0.34.0";
+import { render } from "./render.js?v=0.34.0";
+import { initViewport, getZoom, screenToWorld, centerView, setCenterLocked } from "./viewport.js?v=0.34.0";
+import { initTools } from "./tools.js?v=0.34.0";
+import { initTransform, undo, redo } from "./transform.js?v=0.34.0";
+import { initInspector } from "./inspector.js?v=0.34.0";
+import { initProjectIO } from "./project-io.js?v=0.34.0";
+import { initExportDialog } from "./export-dialog.js?v=0.34.0";
+import { initRuler, setRulerVisible } from "./ruler.js?v=0.34.0";
+import { initSettings } from "./settings.js?v=0.34.0";
+import { initImageObjectify } from "./image-objectify.js?v=0.34.0";
+import { initTemplates } from "./templates.js?v=0.34.0";
+import { initObjectSearch } from "./search.js?v=0.34.0";
 
 const svg = document.getElementById("canvas");
 const zoomReadout = document.getElementById("zoom-readout");
@@ -123,11 +123,11 @@ initInspector(state);
   syncUndoRedo(state.get());
 })();
 
-/* ----- project I/O: top-bar ????닿린 buttons (editable JSON source) ----- */
+/* ----- project I/O: top-bar 저장/불러오기 buttons (editable JSON source) ----- */
 initProjectIO(state, svg);
 
-/* ----- export dialog: ?뚯씪 dropdown ???대?吏濡??대낫?닿린 (PNG/SVG) ----- */
-initExportDialog(state);
+/* ----- export dialog: 파일 dropdown → 내보내기/미리보기 (PNG/SVG) ----- */
+initExportDialog(state, svg);
 
 /* ----- rulers: top + left ruler canvases synced to viewport ----- */
 initRuler(svg, state);
@@ -242,7 +242,7 @@ window.phyDraw = {
 })();
 
 console.info(
-  "[시범공개] [5E v0.33.0] Pick R (or press R), drag on the canvas to draw a\n" +
+  "[시범공개] [5E v0.34.0] Pick R (or press R), drag on the canvas to draw a\n" +
     "Press 'd' to toggle the live coord-debug overlay (pointer?봶orld mapping).\n" +
     "rectangle. Verify with:\n" +
     "  phyDraw.objects()        // array of committed rect objects\n" +

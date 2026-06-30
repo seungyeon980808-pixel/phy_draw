@@ -18,7 +18,7 @@
 // Both formats share buildExportSvg(); the dialog (export-dialog.js) decides
 // filename, format, and resolution and calls exportSvg() / exportPng().
 
-import { renderObject, makeFillPattern } from "./render.js?v=0.33.0";
+import { renderObject, makeFillPattern } from "./render.js?v=0.34.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const MM_PER_INCH = 25.4;
@@ -46,12 +46,22 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
+/* ----- resolve the world rectangle to export ----- */
+// Default = the artboard region (centered at origin). When `bounds` is given
+// (selected-area capture), export exactly that world rectangle instead.
+function exportRegion(s, bounds) {
+  if (bounds && bounds.w > 0 && bounds.h > 0) {
+    return { x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h };
+  }
+  const { w, h } = s.artboard;
+  return { x: -w / 2, y: -h / 2, w, h };
+}
+
 /* ----- build the standalone export <svg> for the current state ----- */
 // Background stays transparent here; PNG export adds its own white rect.
-export function buildExportSvg(s) {
-  const { w, h } = s.artboard;
-  const x = -w / 2;
-  const y = -h / 2;
+// `bounds` (optional) = a world-coordinate {x,y,w,h} rectangle to crop to.
+export function buildExportSvg(s, bounds = null) {
+  const { x, y, w, h } = exportRegion(s, bounds);
 
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("xmlns", SVG_NS);
@@ -96,8 +106,9 @@ export function buildExportSvg(s) {
 }
 
 /* ----- exportSvg: serialize the export SVG and trigger a download ----- */
-export async function exportSvg(state, filename) {
-  const svg = buildExportSvg(state.get());
+// `bounds` (optional): world {x,y,w,h} rectangle for selected-area capture.
+export async function exportSvg(state, filename, bounds = null) {
+  const svg = buildExportSvg(state.get(), bounds);
   const source = new XMLSerializer().serializeToString(svg);
   // XML prolog keeps the file valid as a standalone .svg document.
   const doc = `<?xml version="1.0" encoding="UTF-8"?>\n${source}`;
@@ -106,17 +117,16 @@ export async function exportSvg(state, filename) {
 }
 
 /* ----- exportPng: rasterize the export SVG at a DPI onto a white canvas ----- */
-export async function exportPng(state, filename, dpi) {
+// `bounds` (optional): world {x,y,w,h} rectangle for selected-area capture.
+export async function exportPng(state, filename, dpi, bounds = null) {
   const s = state.get();
-  const { w, h } = s.artboard;
-  const x = -w / 2;
-  const y = -h / 2;
+  const { x, y, w, h } = exportRegion(s, bounds);
 
   // mm ??px at the requested DPI (25.4mm = 1 inch).
   const pixelW = Math.round((w / MM_PER_INCH) * dpi);
   const pixelH = Math.round((h / MM_PER_INCH) * dpi);
 
-  const svg = buildExportSvg(s);
+  const svg = buildExportSvg(s, bounds);
 
   // White background first (PNG with white bg is standard for print/hwp).
   const bg = document.createElementNS(SVG_NS, "rect");
@@ -152,7 +162,7 @@ export async function exportPng(state, filename, dpi) {
   };
   img.onerror = () => {
     URL.revokeObjectURL(url);
-    alert("PNG濡??대낫?대뒗 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.");
+    alert("PNG로 내보내는 중 오류가 발생했습니다.");
   };
   img.src = url;
 }

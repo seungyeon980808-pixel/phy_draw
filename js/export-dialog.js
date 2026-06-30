@@ -11,8 +11,9 @@
 //      with 취소 / 내보내기. On 내보내기 it delegates to svg-export.js's
 //      exportPng() or exportSvg(); the extension is appended from the format.
 
-import { exportPng, exportSvg } from "./svg-export.js?v=0.33.0";
-import { registerTopMenu } from "./top-menu.js?v=0.33.0";
+import { exportPng, exportSvg } from "./svg-export.js?v=0.34.0";
+import { registerTopMenu } from "./top-menu.js?v=0.34.0";
+import { screenToWorld } from "./viewport.js?v=0.34.0";
 
 const DEFAULT_NAME = "physics_drawing";
 
@@ -77,6 +78,7 @@ function buildModal() {
 
       <div class="modal-actions">
         <button type="button" class="modal-btn" id="export-cancel">취소</button>
+        <button type="button" class="modal-btn" id="export-area">영역 지정</button>
         <button type="button" class="modal-btn modal-btn-primary" id="export-confirm">내보내기</button>
       </div>
     </div>
@@ -100,8 +102,107 @@ function segValue(group, attr) {
   return active ? active.getAttribute(attr) : null;
 }
 
+/* ----- selected-area capture: drag a rectangle on the canvas, export it -----
+ * Temporarily dims the screen, shows an instruction, and lets the user drag one
+ * rectangle. On release the screen rect is converted to world coords (via the
+ * SVG's screen CTM) and handed to the existing export pipeline with custom
+ * bounds — so handles/guides/snap/UI chrome are never included. Esc or right
+ * click cancels. `onDone(bounds|null)` runs after capture ends. */
+function runAreaCapture(svg, state, onDone) {
+  const overlay = document.createElement("div");
+  overlay.className = "capture-overlay";
+  overlay.style.cssText =
+    "position:fixed;inset:0;z-index:9000;cursor:crosshair;" +
+    "background:rgba(0,0,0,0.35);user-select:none;";
+
+  const hint = document.createElement("div");
+  hint.textContent = "저장할 영역을 드래그하십시오";
+  hint.style.cssText =
+    "position:absolute;top:18px;left:50%;transform:translateX(-50%);" +
+    "padding:6px 14px;border-radius:4px;background:rgba(20,20,22,0.92);" +
+    "color:#fff;font-size:13px;font-weight:500;pointer-events:none;" +
+    "box-shadow:0 1px 6px rgba(0,0,0,0.4);";
+  overlay.appendChild(hint);
+
+  const rect = document.createElement("div");
+  rect.style.cssText =
+    "position:absolute;border:1.5px solid #4aa3ff;background:rgba(74,163,255,0.18);" +
+    "display:none;pointer-events:none;";
+  overlay.appendChild(rect);
+
+  document.body.appendChild(overlay);
+
+  let start = null; // {x,y} client coords
+
+  function cleanup() {
+    overlay.removeEventListener("mousedown", onDown);
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+    window.removeEventListener("keydown", onKey);
+    overlay.removeEventListener("contextmenu", onCtx);
+    overlay.remove();
+  }
+  function finish(bounds) {
+    cleanup();
+    onDone(bounds);
+  }
+  function cancel() { finish(null); }
+
+  function onDown(e) {
+    if (e.button !== 0) return; // left only; right click cancels via onCtx
+    start = { x: e.clientX, y: e.clientY };
+    rect.style.display = "block";
+    drawRect(e.clientX, e.clientY);
+    e.preventDefault();
+  }
+  function drawRect(cx, cy) {
+    const x = Math.min(start.x, cx), y = Math.min(start.y, cy);
+    rect.style.left = x + "px";
+    rect.style.top = y + "px";
+    rect.style.width = Math.abs(cx - start.x) + "px";
+    rect.style.height = Math.abs(cy - start.y) + "px";
+  }
+  function onMove(e) { if (start) drawRect(e.clientX, e.clientY); }
+  function onUp(e) {
+    if (!start) return;
+    const end = { x: e.clientX, y: e.clientY };
+    const s = start; start = null;
+    // Ignore a near-zero drag (treat as accidental click → stay in capture).
+    if (Math.abs(end.x - s.x) < 4 || Math.abs(end.y - s.y) < 4) {
+      rect.style.display = "none";
+      return;
+    }
+    // Two screen corners → world coords (honours zoom/pan/letterboxing).
+    const vb = state.get().viewBox;
+    const w1 = screenToWorld(svg, vb, s.x, s.y);
+    const w2 = screenToWorld(svg, vb, end.x, end.y);
+    finish({
+      x: Math.min(w1.x, w2.x),
+      y: Math.min(w1.y, w2.y),
+      w: Math.abs(w2.x - w1.x),
+      h: Math.abs(w2.y - w1.y),
+    });
+  }
+  function onKey(e) {
+    if (e.key === "Escape") {
+      // Capture-phase + stopPropagation so the dialog's own Escape handler
+      // doesn't also fire and clobber the reopened modal.
+      e.preventDefault();
+      e.stopPropagation();
+      cancel();
+    }
+  }
+  function onCtx(e) { e.preventDefault(); cancel(); }
+
+  overlay.addEventListener("mousedown", onDown);
+  window.addEventListener("mousemove", onMove);
+  window.addEventListener("mouseup", onUp);
+  window.addEventListener("keydown", onKey, true);
+  overlay.addEventListener("contextmenu", onCtx);
+}
+
 /* ----- initExportDialog: wire dropdown + modal to the export functions ----- */
-export function initExportDialog(state) {
+export function initExportDialog(state, svg) {
   initFileMenu();
 
   const overlay = buildModal();
@@ -138,16 +239,33 @@ export function initExportDialog(state) {
     if (e.key === "Escape" && !overlay.hidden) hideModal();
   });
 
-  // Export with the chosen settings.
-  overlay.querySelector("#export-confirm").addEventListener("click", () => {
+  // Export the current settings, optionally cropped to a world-coord rectangle.
+  function doExport(bounds) {
     const name = (filenameInput.value || "").trim() || DEFAULT_NAME;
     const format = segValue(formatGroup, "data-format");
     if (format === "svg") {
-      exportSvg(state, `${name}.svg`);
+      exportSvg(state, `${name}.svg`, bounds);
     } else {
       const dpi = parseInt(segValue(dpiGroup, "data-dpi"), 10) || 300;
-      exportPng(state, `${name}.png`, dpi);
+      exportPng(state, `${name}.png`, dpi, bounds);
     }
+  }
+
+  // Full-artboard export (unchanged behavior: bounds = null).
+  overlay.querySelector("#export-confirm").addEventListener("click", () => {
+    doExport(null);
     hideModal();
   });
+
+  // Selected-area export: hide the modal, drag a rectangle, export just that.
+  const areaBtn = overlay.querySelector("#export-area");
+  if (areaBtn && svg) {
+    areaBtn.addEventListener("click", () => {
+      hideModal();
+      runAreaCapture(svg, state, (bounds) => {
+        if (bounds) doExport(bounds);
+        else showModal(); // cancelled → reopen the dialog where we left off
+      });
+    });
+  }
 }

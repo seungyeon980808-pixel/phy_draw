@@ -1,3 +1,4 @@
+@charset "UTF-8";
 /* ===== INSPECTOR PANEL ===== */
 
 :root {
@@ -91,7 +92,9 @@
 .insp-summary::-webkit-details-marker { display: none; }
 
 .insp-summary::before {
-  content: "›";
+  /* ASCII-only escape (U+203A) so the disclosure chevron can't turn into
+     mojibake if the sheet is ever read with the wrong charset. */
+  content: "\203A";
   display: inline-block;
   font-size: 13px;
   line-height: 1;

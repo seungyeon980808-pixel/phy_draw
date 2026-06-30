@@ -7,7 +7,7 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.33.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.34.0";
 import {
   DEFAULT_TEXT_FONT,
   DEFAULT_TEXT_SIZE_MM,
@@ -21,9 +21,9 @@ import {
   OBJECT_LABEL_TEXT_FONT_FAMILY,
   resolveTextFontStyle,
   resolveTextLetterSpacing,
-} from "./state.js?v=0.33.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.33.0";
-import { renderFormula } from "./formula.js?v=0.33.0";
+} from "./state.js?v=0.34.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.34.0";
+import { renderFormula } from "./formula.js?v=0.34.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -738,7 +738,8 @@ function makeUprightLabel(text, x, y, color, sizeMm = DEFAULT_TEXT_SIZE_MM, opti
 
 /* Attach a box-shape's (rect/ellipse) upright label, if any. The anchor is
  * computed in the UNROTATED bbox frame so the text stays horizontal regardless
- * of obj.rotation. labelPos: "center" | "above" | "below" (default center).
+ * of obj.rotation. labelPos: "center" | "above" | "below" | "left" | "right"
+ * (default center).
  * When a label exists the shape is wrapped in a <g> that carries the data-id;
  * with no label the bare shape element is returned unchanged. */
 function withBoxLabel(shapeEl, obj) {
@@ -746,11 +747,20 @@ function withBoxLabel(shapeEl, obj) {
   const size = obj.labelSize || DEFAULT_TEXT_SIZE_MM;
   const gap = size * 0.85;
   const cx = obj.x + obj.w / 2;
-  let ly;
-  if (pos === "above")      ly = obj.y - gap;
-  else if (pos === "below") ly = obj.y + obj.h + gap;
-  else                      ly = obj.y + obj.h / 2; // center
-  const lbl = makeUprightLabel(obj.label, cx, ly, grayHex(obj.strokeLevel), size, { labelType: obj.labelType });
+  const cy = obj.y + obj.h / 2;
+  // Anchor in the object's LOCAL (unrotated) frame, measured from the center.
+  // center -> (0,0); the four "outside" spots sit one `gap` beyond each edge.
+  let lx = 0, ly = 0;
+  if (pos === "above")      ly = -(obj.h / 2 + gap);
+  else if (pos === "below") ly =  (obj.h / 2 + gap);
+  else if (pos === "left")  lx = -(obj.w / 2 + gap);
+  else if (pos === "right") lx =  (obj.w / 2 + gap);
+  // Rotate that local anchor by obj.rotation around the center (via the shared
+  // rotPt helper) so it stays pinned to the same relative spot as the shape
+  // turns. The text node itself is appended OUTSIDE the rotation group, so the
+  // glyph stays upright.
+  const anchor = rotPt(cx + lx, cy + ly, cx, cy, obj.rotation || 0);
+  const lbl = makeUprightLabel(obj.label, anchor.x, anchor.y, grayHex(obj.strokeLevel), size, { labelType: obj.labelType });
   if (!lbl) return shapeEl;
   const g = document.createElementNS(SVG_NS, "g");
   if (obj.id) { g.dataset.id = obj.id; delete shapeEl.dataset.id; }
@@ -1623,7 +1633,10 @@ function renderLabeler(obj) {
   const dx = b.x - a.x, dy = b.y - a.y;
   const dist = Math.hypot(dx, dy);
   const ux = dist ? dx / dist : 0, uy = dist ? dy / dist : 0;
-  const gap = size * 0.9;                 // clear space between leader tip and label
+  // Stop the leader just shy of the label: enough to clear a circled-letter
+  // glyph (~0.5em radius) plus a small ~2-4px visual gap, no more. Smaller than
+  // the old size*0.9 so the line reads as connected to the label.
+  const gap = size * 0.6;                 // clear space between leader tip and label
   const lead = Math.max(dist - gap, 0);   // leader length (never inverts)
   const ex = a.x + ux * lead, ey = a.y + uy * lead;
 

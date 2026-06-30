@@ -1,8 +1,8 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, mmToPt, ptToMm, MIN_TEXT_PT, OBJECT_LABEL_TYPES } from "./state.js?v=0.33.0";
-import { openFontModalForSelection } from "./tools.js?v=0.33.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.33.0";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, mmToPt, ptToMm, MIN_TEXT_PT, OBJECT_LABEL_TYPES } from "./state.js?v=0.34.0";
+import { openFontModalForSelection } from "./tools.js?v=0.34.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.34.0";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -1575,7 +1575,7 @@ export function initInspector(state) {
   boxLabelPosLbl.textContent = "라벨 위치";
   const boxLabelPosSel = document.createElement("select");
   boxLabelPosSel.className = "insp-input";
-  [["center", "가운데"], ["above", "위"], ["below", "아래"]].forEach(([val, text]) => {
+  [["center", "가운데"], ["above", "위"], ["below", "아래"], ["left", "왼쪽"], ["right", "오른쪽"]].forEach(([val, text]) => {
     const opt = document.createElement("option");
     opt.value = val; opt.textContent = text;
     boxLabelPosSel.appendChild(opt);
@@ -1587,7 +1587,7 @@ export function initInspector(state) {
     const s = state.get();
     if (!(s.selectedIds || []).length) return;
     const snap = JSON.parse(JSON.stringify(s.objects));
-    const val = ["center", "above", "below"].includes(boxLabelPosSel.value) ? boxLabelPosSel.value : "center";
+    const val = ["center", "above", "below", "left", "right"].includes(boxLabelPosSel.value) ? boxLabelPosSel.value : "center";
     state.update((s2) => {
       const o = s2.objects.find((o) => o.id === (s2.selectedIds || [])[0]);
       if (!o || o.locked) return;
@@ -2623,7 +2623,7 @@ export function initInspector(state) {
     if (isBoxLabelType) {
       if (document.activeElement !== boxLabelInp) boxLabelInp.value = obj.label ?? "";
       boxLabelTypeRow.sync(obj);
-      boxLabelPosSel.value = ["center", "above", "below"].includes(obj.labelPos) ? obj.labelPos : "center";
+      boxLabelPosSel.value = ["center", "above", "below", "left", "right"].includes(obj.labelPos) ? obj.labelPos : "center";
       if (document.activeElement !== boxLabelSizeRow.num) {
         boxLabelSizeRow.num.value = Math.round(mmToPt(obj.labelSize || DEFAULT_TEXT_SIZE_MM));
       }
