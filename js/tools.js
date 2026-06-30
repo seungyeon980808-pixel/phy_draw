@@ -11,19 +11,19 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.36.0";
+import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.36.1";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt, MIN_TEXT_PT,
   EQUATION_FONT_FAMILY,
   isEquationFontFamily, resolveTextFontStyle, resolveTextLetterSpacing,
-} from "./state.js?v=0.36.0";
+} from "./state.js?v=0.36.1";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.36.0";
-import { resolveEndpointSnap } from "./snap.js?v=0.36.0";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.36.0";
-import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.36.0";
+import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.36.1";
+import { resolveEndpointSnap } from "./snap.js?v=0.36.1";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.36.1";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.36.1";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -1140,6 +1140,61 @@ function _openSmallTextEditor(objId, { type = "labeler", field = "text", title =
   ta.value = o[field] ?? "";
   _smallEditorTextarea = ta;
 
+  // labeler-only text controls live HERE (in the double-click edit dialog), NOT in
+  // the inspector: 글씨체 (font family → obj.fontFamily), 글씨 크기 (size → obj.labelSize
+  // in world mm), and quick-character buttons (Roman numerals + circled consonants).
+  // The angle-arc editor reuses this same dialog for a short symbol, so it skips them.
+  const isLabeler = type === "labeler";
+  let fontSel = null, sizeInp = null, ctrlRow = null, charsRow = null;
+  if (isLabeler) {
+    ctrlRow = document.createElement("div");
+    ctrlRow.className = "unified-editor-row";
+
+    const fontWrap = document.createElement("label");
+    fontWrap.style.cssText = "display:flex;align-items:center;gap:4px;flex:1;min-width:0;font-size:11px;color:var(--text-secondary);";
+    fontWrap.append("글씨체");
+    fontSel = document.createElement("select");
+    fontSel.style.cssText = "flex:1;min-width:0;font-size:12px;color:var(--text-primary);background:var(--bg-canvas);border:1px solid var(--border);border-radius:5px;padding:3px 5px;";
+    TEXT_FONTS.forEach((f) => {
+      const opt = document.createElement("option");
+      opt.value = f.css; opt.textContent = f.label;
+      fontSel.appendChild(opt);
+    });
+    fontSel.value = o.fontFamily || DEFAULT_TEXT_FONT;
+    fontWrap.appendChild(fontSel);
+
+    const sizeWrap = document.createElement("label");
+    sizeWrap.style.cssText = "display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-secondary);";
+    sizeWrap.append("글씨 크기");
+    sizeInp = document.createElement("input");
+    sizeInp.type = "number";
+    sizeInp.min = String(MIN_TEXT_PT);
+    sizeInp.max = "400";
+    sizeInp.step = "1";
+    sizeInp.style.cssText = "width:56px;font-size:12px;text-align:center;color:var(--text-primary);background:var(--bg-canvas);border:1px solid var(--border);border-radius:5px;padding:3px 4px;";
+    sizeInp.value = Math.round(mmToPt(o.labelSize || DEFAULT_TEXT_SIZE_MM));
+    sizeWrap.appendChild(sizeInp);
+    const sizeUnit = document.createElement("span");
+    sizeUnit.textContent = "pt";
+    sizeWrap.appendChild(sizeUnit);
+
+    ctrlRow.append(fontWrap, sizeWrap);
+
+    charsRow = document.createElement("div");
+    charsRow.className = "unified-editor-row";
+    charsRow.style.flexWrap = "wrap";
+    ["Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", "㉠", "㉡", "㉢", "㉣", "㉤"].forEach((ch) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = ch;
+      b.title = `${ch} 삽입`;
+      b.style.cssText = "min-width:28px;height:28px;padding:0 4px;font-size:14px;cursor:pointer;color:var(--text-primary);background:var(--btn-tool-bg);border:1px solid var(--border);border-radius:5px;";
+      b.addEventListener("mousedown", (e) => e.preventDefault()); // keep textarea caret/focus
+      b.addEventListener("click", () => insertLabelerChar(ch));
+      charsRow.appendChild(b);
+    });
+  }
+
   const actions = document.createElement("div");
   actions.className = "unified-editor-actions";
   const cancel = document.createElement("button");
@@ -1153,13 +1208,26 @@ function _openSmallTextEditor(objId, { type = "labeler", field = "text", title =
     const id = _smallEditorObjId;
     const ty = _smallEditorType;
     const fld = _smallEditorField;
+    // labeler-only: capture 글씨체 / 글씨 크기 from the dialog (null for the arc editor).
+    const fontVal = fontSel ? (fontSel.value || DEFAULT_TEXT_FONT) : null;
+    let sizeMm = null;
+    if (sizeInp) {
+      let pt = Number(sizeInp.value);
+      if (!isFinite(pt) || pt < MIN_TEXT_PT) pt = MIN_TEXT_PT;
+      sizeMm = ptToMm(pt);
+    }
     _closeSmallEditor();
     _state.update((st) => {
       const obj = st.objects.find((x) => x.id === id);
       if (!obj || obj.type !== ty) return;
-      if ((obj[fld] ?? "") === val) return;
+      const textChanged = (obj[fld] ?? "") !== val;
+      const fontChanged = fontVal != null && (obj.fontFamily ?? DEFAULT_TEXT_FONT) !== fontVal;
+      const sizeChanged = sizeMm != null && (obj.labelSize ?? DEFAULT_TEXT_SIZE_MM) !== sizeMm;
+      if (!textChanged && !fontChanged && !sizeChanged) return;
       const snap = JSON.parse(JSON.stringify(st.objects));
       obj[fld] = val;
+      if (fontVal != null) obj.fontFamily = fontVal;
+      if (sizeMm != null) obj.labelSize = sizeMm;
       st.undoStack.push(snap);
       st.redoStack = [];
     });
@@ -1175,8 +1243,16 @@ function _openSmallTextEditor(objId, { type = "labeler", field = "text", title =
     else if (ke.key === "Enter" && (ke.ctrlKey || ke.metaKey)) { ke.preventDefault(); commit(); }
     // plain Enter → newline (native textarea behavior, multiline)
   });
+  // Keyboard events from the font/size controls must not reach canvas shortcuts;
+  // Ctrl+Enter / Esc still commit / cancel from anywhere in the dialog.
+  box.addEventListener("keydown", (ke) => {
+    ke.stopPropagation();
+    if (ke.key === "Escape") { ke.preventDefault(); _closeSmallEditor(); }
+    else if (ke.key === "Enter" && (ke.ctrlKey || ke.metaKey)) { ke.preventDefault(); commit(); }
+  });
 
-  box.append(titleEl, hint, ta, actions);
+  if (isLabeler) box.append(titleEl, hint, ta, ctrlRow, charsRow, actions);
+  else box.append(titleEl, hint, ta, actions);
   wrap.appendChild(box);
   const left = Math.max(0, Math.round((wrap.clientWidth - box.offsetWidth) / 2));
   const top = Math.max(0, Math.round((wrap.clientHeight - box.offsetHeight) / 2));

@@ -1,8 +1,8 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, mmToPt, ptToMm, MIN_TEXT_PT, OBJECT_LABEL_TYPES } from "./state.js?v=0.36.0";
-import { openFontModalForSelection, openLabelerTextEditor, openAngleArcLabelEditor, insertLabelerChar } from "./tools.js?v=0.36.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.36.0";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, mmToPt, ptToMm, MIN_TEXT_PT, OBJECT_LABEL_TYPES } from "./state.js?v=0.36.1";
+import { openFontModalForSelection, openAngleArcLabelEditor } from "./tools.js?v=0.36.1";
+import { resolveObjectStyle } from "./style-mode.js?v=0.36.1";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -167,7 +167,6 @@ export function initInspector(state) {
   const emptyEl   = document.getElementById("inspector-empty");
   const contentEl = document.getElementById("inspector-content");
   if (!emptyEl || !contentEl) return;
-  const LABELER_PRESETS = ["㉠", "㉡", "㉢", "㉣", "㉤"];
 
   /* ----- shared 라벨 크기 row builder (Group 6 task 6) -----
    * A "라벨 크기" number input in points; stores obj.labelSize in world mm.
@@ -1522,87 +1521,92 @@ export function initInspector(state) {
     });
   });
 
-  // labeler-only: an editable text/callout object. Its text (obj.text) is edited
-  // by double-clicking the labeler or via the "텍스트 편집" button below — NOT an
-  // inline 이름 field, and it has no 물리량/라벨 종류 selector (its default style is
-  // Dotum-first NORMAL text). The inspector instead exposes useful text controls:
-  // 글씨체 (font family), 글씨 크기 (size), and quick-character insert buttons.
-  const labelerEditRow = document.createElement("div");
-  labelerEditRow.className = "insp-row";
-  const labelerEditLbl = document.createElement("label");
-  labelerEditLbl.className = "insp-field-label";
-  labelerEditLbl.textContent = "텍스트";
-  const labelerEditBtn = document.createElement("button");
-  labelerEditBtn.type = "button";
-  labelerEditBtn.textContent = "텍스트 편집...";
-  labelerEditBtn.title = "여러 줄 텍스트 입력기 열기 (Enter 줄바꿈 · Ctrl+Enter 확인)";
-  labelerEditBtn.style.cssText = "padding:4px 10px;font-size:11px;cursor:pointer;border:1px solid #3a3c41;border-radius:3px;background:#1e1f22;color:#dcddde;";
-  labelerEditBtn.addEventListener("click", () => {
-    const id = (state.get().selectedIds || [])[0];
-    if (id) openLabelerTextEditor(id);
-  });
-  labelerEditRow.appendChild(labelerEditLbl);
-  labelerEditRow.appendChild(labelerEditBtn);
-  sec3Body.appendChild(labelerEditRow);
+  // labeler-only geometry (mirrors the straight-line inspector): 길이 + 각도 of the
+  // leader line. The labeler stores p1 (leader anchor on the graph) and p2 (label
+  // position); 길이 = |p2 − p1|, 각도 = atan2(p2−p1) in the SAME convention as the
+  // straight-line 각도 field. Text editing lives in the double-click dialog, NOT here.
+  // Editing keeps the anchor p1 fixed and repositions the label p2, preserving the
+  // other component — so the leader anchor stays put and labeler geometry is intact.
+  const labelerLenRow = document.createElement("div");
+  labelerLenRow.className = "insp-row";
+  const labelerLenLbl = document.createElement("label");
+  labelerLenLbl.className = "insp-field-label";
+  labelerLenLbl.textContent = "길이";
+  const labelerLenInp = document.createElement("input");
+  labelerLenInp.type = "number";
+  labelerLenInp.step = "0.1";
+  labelerLenInp.min = "0";
+  labelerLenInp.className = "insp-input";
+  const labelerLenUnit = document.createElement("span");
+  labelerLenUnit.className = "insp-unit";
+  labelerLenUnit.textContent = "mm";
+  labelerLenRow.appendChild(labelerLenLbl);
+  labelerLenRow.appendChild(labelerLenInp);
+  labelerLenRow.appendChild(labelerLenUnit);
+  sec3Body.appendChild(labelerLenRow);
 
-  // 글씨체: reuse the shared TEXT_FONTS presets → obj.fontFamily (default Dotum).
-  const labelerFontRow = document.createElement("div");
-  labelerFontRow.className = "insp-row";
-  const labelerFontLbl = document.createElement("label");
-  labelerFontLbl.className = "insp-field-label";
-  labelerFontLbl.textContent = "글씨체";
-  const labelerFontSel = document.createElement("select");
-  labelerFontSel.style.cssText = "flex:1;min-width:0;font-size:12px;border:1px solid #3a3c41;border-radius:3px;padding:2px 4px;background:#1e1f22;color:#dcddde;";
-  TEXT_FONTS.forEach((f) => {
-    const opt = document.createElement("option");
-    opt.value = f.css;
-    opt.textContent = f.label;
-    labelerFontSel.appendChild(opt);
-  });
-  labelerFontRow.appendChild(labelerFontLbl);
-  labelerFontRow.appendChild(labelerFontSel);
-  sec3Body.appendChild(labelerFontRow);
-  labelerFontSel.addEventListener("change", () => {
+  function commitLabelerLength() {
+    const val = parseFloat(labelerLenInp.value);
+    if (!isFinite(val) || val < 0) return;
     const s = state.get();
-    const id = (s.selectedIds || [])[0];
-    if (!id) return;
-    const val = labelerFontSel.value || DEFAULT_TEXT_FONT;
+    const ids = s.selectedIds || [];
+    if (ids.length !== 1) return;
     const snap = JSON.parse(JSON.stringify(s.objects));
     state.update((s2) => {
-      const o = s2.objects.find((it) => it.id === id);
+      const o = s2.objects.find((it) => it.id === ids[0]);
       if (!o || o.type !== "labeler" || o.locked) return;
-      if ((o.fontFamily ?? DEFAULT_TEXT_FONT) === val) return;
-      o.fontFamily = val;
+      const dx = o.p2.x - o.p1.x, dy = o.p2.y - o.p1.y;
+      const cur = Math.hypot(dx, dy);
+      const ux = cur > 1e-9 ? dx / cur : 1; // degenerate leader → default horizontal
+      const uy = cur > 1e-9 ? dy / cur : 0;
+      o.p2 = { x: o.p1.x + ux * val, y: o.p1.y + uy * val };
       s2.undoStack.push(snap);
       s2.redoStack = [];
     });
-  });
+  }
+  labelerLenInp.addEventListener("keydown", (e) => { if (e.key === "Enter") labelerLenInp.blur(); });
+  labelerLenInp.addEventListener("blur", commitLabelerLength);
 
-  // 글씨 크기 (per-labeler font size; stored as obj.labelSize in world mm).
-  const labelerSizeRow = makeLabelSizeRow((o) => o.type === "labeler", "글씨 크기");
-  sec3Body.appendChild(labelerSizeRow.row);
+  const labelerAngleRow = document.createElement("div");
+  labelerAngleRow.className = "insp-row";
+  const labelerAngleLbl = document.createElement("label");
+  labelerAngleLbl.className = "insp-field-label";
+  labelerAngleLbl.textContent = "각도";
+  const labelerAngleInp = document.createElement("input");
+  labelerAngleInp.type = "number";
+  labelerAngleInp.step = "1";
+  labelerAngleInp.className = "insp-input";
+  const labelerAngleUnit = document.createElement("span");
+  labelerAngleUnit.className = "insp-unit";
+  labelerAngleUnit.textContent = "°";
+  labelerAngleRow.appendChild(labelerAngleLbl);
+  labelerAngleRow.appendChild(labelerAngleInp);
+  labelerAngleRow.appendChild(labelerAngleUnit);
+  sec3Body.appendChild(labelerAngleRow);
 
-  // 자주 쓰는 문자: quick-insert buttons. Roman numerals + circled Korean
-  // consonants. Inserts at the editor caret if open, else appends to obj.text.
-  const labelerCharsRow = document.createElement("div");
-  labelerCharsRow.className = "insp-row";
-  const labelerCharsLbl = document.createElement("label");
-  labelerCharsLbl.className = "insp-field-label";
-  labelerCharsLbl.textContent = "자주 쓰는 문자";
-  const labelerCharsWrap = document.createElement("div");
-  labelerCharsWrap.style.cssText = "display:flex;gap:4px;flex-wrap:wrap;flex:1;min-width:0;";
-  ["Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", ...LABELER_PRESETS].forEach((ch) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.textContent = ch;
-    btn.title = `${ch} 삽입`;
-    btn.style.cssText = "min-width:24px;height:24px;padding:0 4px;font-size:13px;cursor:pointer;border:1px solid #3a3c41;border-radius:3px;background:#1e1f22;color:#dcddde;";
-    btn.addEventListener("click", () => insertLabelerChar(ch));
-    labelerCharsWrap.appendChild(btn);
-  });
-  labelerCharsRow.appendChild(labelerCharsLbl);
-  labelerCharsRow.appendChild(labelerCharsWrap);
-  sec3Body.appendChild(labelerCharsRow);
+  function commitLabelerAngle() {
+    const val = parseFloat(labelerAngleInp.value);
+    if (!isFinite(val)) return;
+    const s = state.get();
+    const ids = s.selectedIds || [];
+    if (ids.length !== 1) return;
+    const snap = JSON.parse(JSON.stringify(s.objects));
+    state.update((s2) => {
+      const o = s2.objects.find((it) => it.id === ids[0]);
+      if (!o || o.type !== "labeler" || o.locked) return;
+      const len = Math.hypot(o.p2.x - o.p1.x, o.p2.y - o.p1.y);
+      const rad = (val * Math.PI) / 180;
+      let nx = Math.cos(rad), ny = Math.sin(rad);
+      const n = ((val % 360) + 360) % 360;
+      if (n === 0 || n === 180) ny = 0;   // exact horizontal
+      if (n === 90 || n === 270) nx = 0;  // exact vertical
+      o.p2 = { x: o.p1.x + nx * len, y: o.p1.y + ny * len };
+      s2.undoStack.push(snap);
+      s2.redoStack = [];
+    });
+  }
+  labelerAngleInp.addEventListener("keydown", (e) => { if (e.key === "Enter") labelerAngleInp.blur(); });
+  labelerAngleInp.addEventListener("blur", commitLabelerAngle);
 
   /* ---- rect/ellipse upright label (Group 3): text input + position dropdown ----
    * Writes obj.label / obj.labelPos. The label renders screen-upright, excluded
@@ -2672,14 +2676,16 @@ export function initInspector(state) {
     // node uses a label-position dropdown instead of the show/hide toggle.
     showLabelRow.style.display = (isOptics && !isNode) ? "" : "none";
     labelPosRow.style.display = isNode ? "" : "none";
-    labelerEditRow.style.display = isLabeler ? "" : "none";
-    labelerFontRow.style.display = isLabeler ? "" : "none";
-    labelerSizeRow.row.style.display = isLabeler ? "" : "none";
-    labelerCharsRow.style.display = isLabeler ? "" : "none";
+    labelerLenRow.style.display = isLabeler ? "" : "none";
+    labelerAngleRow.style.display = isLabeler ? "" : "none";
     if (isLabeler) {
-      labelerFontSel.value = obj.fontFamily || DEFAULT_TEXT_FONT;
-      if (document.activeElement !== labelerSizeRow.num) {
-        labelerSizeRow.num.value = Math.round(mmToPt(obj.labelSize || DEFAULT_TEXT_SIZE_MM));
+      if (document.activeElement !== labelerLenInp) {
+        const len = Math.hypot(obj.p2.x - obj.p1.x, obj.p2.y - obj.p1.y);
+        labelerLenInp.value = len.toFixed(2);
+      }
+      if (document.activeElement !== labelerAngleInp) {
+        const ang = Math.atan2(obj.p2.y - obj.p1.y, obj.p2.x - obj.p1.x) * 180 / Math.PI;
+        labelerAngleInp.value = ang.toFixed(1);
       }
     }
     arcLabelEditRow.style.display = isArc ? "" : "none";
@@ -2792,8 +2798,8 @@ export function initInspector(state) {
     swF.inp.disabled = !!obj.locked;
     labelInp.disabled = !!obj.locked;
     arcLabelEditBtn.disabled = !!obj.locked;
-    labelerEditBtn.disabled = !!obj.locked;
-    labelerFontSel.disabled = !!obj.locked;
+    labelerLenInp.disabled = !!obj.locked;
+    labelerAngleInp.disabled = !!obj.locked;
     showLabelCb.disabled = !!obj.locked;
     labelPosSel.disabled = !!obj.locked;
     boxLabelInp.disabled = !!obj.locked;
