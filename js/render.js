@@ -7,17 +7,18 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.32.2";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.32.3";
 import {
   DEFAULT_TEXT_FONT,
   DEFAULT_TEXT_SIZE_MM,
   CIRCUIT_BODY_MM,
   TOOL_LABEL_FONT_FAMILY,
   VARIABLE_LABEL_FONT_STYLE,
+  VARIABLE_LABEL_FALLBACK_FONT_STYLE,
   CALLOUT_LABEL_FONT_STYLE,
-} from "./state.js?v=0.32.2";
-import { resolveObjectStyle } from "./style-mode.js?v=0.32.2";
-import { renderFormula } from "./formula.js?v=0.32.2";
+} from "./state.js?v=0.32.3";
+import { resolveObjectStyle } from "./style-mode.js?v=0.32.3";
+import { renderFormula } from "./formula.js?v=0.32.3";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -696,18 +697,17 @@ export function renderObject(obj) {
  * rotated shape, never inside the rotation group), in the default font, and IS
  * included in export (it lives in renderObject's output). Returns an SVG <text>
  * node, or null when there's no label text. */
-// Physics/tool labels use the HWP equation font first, then system serif
-// fallbacks. Variable labels stay italic by caller choice; callout text is normal.
+// Physics variable labels use the HWP equation font at its native slant.
+// Synthetic italic over-slants HyhwpEQ in Chromium.
 function makeUprightLabel(text, x, y, color, sizeMm = DEFAULT_TEXT_SIZE_MM, options = {}) {
   const s = String(text ?? "");
   if (!s) return null;
-  const fontStyle = options.fontStyle || (options.italic === false ? CALLOUT_LABEL_FONT_STYLE : VARIABLE_LABEL_FONT_STYLE);
   const t = document.createElementNS(SVG_NS, "text");
   t.setAttribute("x", x);
   t.setAttribute("y", y);
   t.setAttribute("font-size", sizeMm);
-  t.setAttribute("font-family", TOOL_LABEL_FONT_FAMILY);
-  t.setAttribute("font-style", fontStyle);
+  if (options.labelKind === "callout" || options.italic === false) applyCalloutLabelFont(t);
+  else applyVariableLabelFont(t);
   t.setAttribute("fill", color);
   t.setAttribute("text-anchor", "middle");
   t.setAttribute("dominant-baseline", "central");
@@ -875,6 +875,42 @@ function textFontStyle(obj) {
   return obj.italic === true ? "italic" : "normal";
 }
 
+let _equationFontAvailable = null;
+
+function hasEquationFont() {
+  if (_equationFontAvailable != null) return _equationFontAvailable;
+  if (typeof document === "undefined") {
+    _equationFontAvailable = true;
+    return _equationFontAvailable;
+  }
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    _equationFontAvailable = true;
+    return _equationFontAvailable;
+  }
+  ctx.font = 'normal 64px "HyhwpEQ", serif';
+  const eqWidth = ctx.measureText("mh").width;
+  ctx.font = 'normal 64px "Times New Roman", serif';
+  const timesWidth = ctx.measureText("mh").width;
+  _equationFontAvailable = Math.abs(eqWidth - timesWidth) > 1;
+  return _equationFontAvailable;
+}
+
+function variableLabelFontStyle() {
+  return hasEquationFont() ? VARIABLE_LABEL_FONT_STYLE : VARIABLE_LABEL_FALLBACK_FONT_STYLE;
+}
+
+function applyVariableLabelFont(t) {
+  t.setAttribute("font-family", TOOL_LABEL_FONT_FAMILY);
+  t.setAttribute("font-style", variableLabelFontStyle());
+}
+
+function applyCalloutLabelFont(t) {
+  t.setAttribute("font-family", DEFAULT_TEXT_FONT);
+  t.setAttribute("font-style", CALLOUT_LABEL_FONT_STYLE);
+}
+
 /* ----- point + travel direction at 50% of a polyline's total path length ----- */
 // Used by polyline "center" arrowhead: visually natural midpoint of the whole path.
 function polylineMidpoint(pts) {
@@ -1037,11 +1073,10 @@ function renderLine(obj) {
     label.setAttribute("y", my);
     label.setAttribute("fill", color);
     label.setAttribute("font-size", Math.max(2.5, sw * 8));
-    // Match the straight-line external label (makeUprightLabel): italic serif /
-    // 신명조 stack so a dimension label (e.g. "Q") reads identically to a line
+    // Match the straight-line external label (makeUprightLabel): native HyhwpEQ
+    // stack so a dimension label (e.g. "Q") reads identically to a line
     // variable label (e.g. "H"). Style only — geometry/behavior unchanged.
-    label.setAttribute("font-family", TOOL_LABEL_FONT_FAMILY);
-    label.setAttribute("font-style", VARIABLE_LABEL_FONT_STYLE);
+    applyVariableLabelFont(label);
     label.setAttribute("text-anchor", "middle");
     label.setAttribute("dominant-baseline", "central");
     label.setAttribute("paint-order", "stroke");
@@ -1470,7 +1505,7 @@ function renderAxes(obj) {
     }
   }
 
-  // ----- axis labels (italic, near each arrow tip) -----
+  // ----- axis labels (equation font, near each arrow tip) -----
   const labelSize = Math.max(sw * 14, 3);
   const addLabel = (text, lx, ly, anchor, baseline) => {
     if (!text) return;
@@ -1478,8 +1513,7 @@ function renderAxes(obj) {
     t.setAttribute("x", lx);
     t.setAttribute("y", ly);
     t.setAttribute("font-size", labelSize);
-    t.setAttribute("font-style", VARIABLE_LABEL_FONT_STYLE);
-    t.setAttribute("font-family", TOOL_LABEL_FONT_FAMILY);
+    applyVariableLabelFont(t);
     t.setAttribute("fill", color);
     t.setAttribute("text-anchor", anchor);
     t.setAttribute("dominant-baseline", baseline);
@@ -1554,8 +1588,7 @@ function renderAngleArc(obj) {
     t.setAttribute("x", vx + lr * Math.cos(rad));
     t.setAttribute("y", vy - lr * Math.sin(rad));
     t.setAttribute("font-size", labelSize);
-    t.setAttribute("font-style", VARIABLE_LABEL_FONT_STYLE);
-    t.setAttribute("font-family", TOOL_LABEL_FONT_FAMILY);
+    applyVariableLabelFont(t);
     t.setAttribute("fill", color);
     t.setAttribute("text-anchor", "middle");
     t.setAttribute("dominant-baseline", "middle");
@@ -1601,8 +1634,8 @@ function renderLabeler(obj) {
   line.setAttribute("stroke-linecap", "round");
   g.appendChild(line);
 
-  // Upright (non-rotating) callout text at p2 in the tool label font.
-  const lbl = makeUprightLabel(obj.text, b.x, b.y, color, size, { fontStyle: CALLOUT_LABEL_FONT_STYLE });
+  // Upright (non-rotating) callout text at p2 in the normal text font.
+  const lbl = makeUprightLabel(obj.text, b.x, b.y, color, size, { labelKind: "callout" });
   if (lbl) g.appendChild(lbl);
 
   return g;
@@ -1928,12 +1961,16 @@ function cLine(a, b, sw, color) {
   return l;
 }
 // A centered glyph (shared by circle-body elements + diode terminal labels + optics label).
-function cText(g, x, y, text, size, color, fontFamily = TOOL_LABEL_FONT_FAMILY, fontStyle = VARIABLE_LABEL_FONT_STYLE) {
+function cText(g, x, y, text, size, color, fontFamily = null, fontStyle = null) {
   const t = document.createElementNS(SVG_NS, "text");
   t.setAttribute("x", x); t.setAttribute("y", y);
   t.setAttribute("font-size", size);
-  t.setAttribute("font-family", fontFamily);
-  t.setAttribute("font-style", fontStyle);
+  if (fontFamily || fontStyle) {
+    t.setAttribute("font-family", fontFamily || TOOL_LABEL_FONT_FAMILY);
+    t.setAttribute("font-style", fontStyle || variableLabelFontStyle());
+  } else {
+    applyVariableLabelFont(t);
+  }
   t.setAttribute("fill", color);
   t.setAttribute("text-anchor", "middle");
   t.setAttribute("dominant-baseline", "central");
@@ -2137,8 +2174,7 @@ function renderCircuit(obj) {
     t.setAttribute("x", mid.x + px * off * sign);
     t.setAttribute("y", mid.y + py * off * sign);
     t.setAttribute("font-size", size);
-    t.setAttribute("font-family", TOOL_LABEL_FONT_FAMILY);
-    t.setAttribute("font-style", VARIABLE_LABEL_FONT_STYLE);
+    applyVariableLabelFont(t);
     t.setAttribute("fill", color);
     t.setAttribute("text-anchor", "middle");
     t.setAttribute("dominant-baseline", "middle");
