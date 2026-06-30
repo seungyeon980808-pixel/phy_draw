@@ -11,19 +11,19 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.32.5";
+import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.33.0";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt, MIN_TEXT_PT,
   EQUATION_FONT_FAMILY,
   isEquationFontFamily, resolveTextFontStyle, resolveTextLetterSpacing,
-} from "./state.js?v=0.32.5";
+} from "./state.js?v=0.33.0";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.32.5";
-import { resolveEndpointSnap } from "./snap.js?v=0.32.5";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.32.5";
-import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.32.5";
+import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.33.0";
+import { resolveEndpointSnap } from "./snap.js?v=0.33.0";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.33.0";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.33.0";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -715,7 +715,7 @@ function setupNodePlacement() {
         x: place.x - sz / 2, y: place.y - sz / 2, w: sz, h: sz,
         rotation: 0, strokeLevel: 0, strokeWidth: 0.3,
         fillLevel: 255, fillNone: true,
-        label: "", showLabel: false, labelPos: "above",
+        label: "", showLabel: false, labelPos: "above", labelType: "quantity",
         dashLength: 0, dashGap: 0, locked: false, positionLocked: false,
         layerId: s.activeLayerId, order: s.objects.length,
       };
@@ -903,6 +903,7 @@ function makeAngleArcDraft(vertex, point, sweepPoint = null, ctrlKey = false) {
     startAngle,               // math convention (CCW positive, +Y up)
     sweepAngle,
     label: "θ",
+    labelType: "quantity",
     showLabel: true,
     strokeLevel: 0,           // 0 = black (DESIGN 2-2)
     strokeWidth: DEFAULT_STROKE_WIDTH,
@@ -1002,6 +1003,7 @@ function makeLabelerDraft(anchor, labelPt) {
     p1: { x: anchor.x, y: anchor.y },  // leader anchor (graph side)
     p2: { x: labelPt.x, y: labelPt.y },// label position
     text: "㉠",                        // circled-letter preset (changeable in inspector)
+    labelType: "label",
     labelSize: DEFAULT_TEXT_SIZE_MM,   // mm; settable in inspector
     strokeLevel: 0,                    // 0 = black (DESIGN 2-2)
     strokeWidth: DEFAULT_STROKE_WIDTH,
@@ -1416,6 +1418,7 @@ function makeShape(type, a, b) {
     fillStyle: "solid",   // "solid" | "dots" | "cross" | "hatch"
     dashLength: 0,
     dashGap: 0,
+    labelType: "quantity",
     locked: false,
     positionLocked: false,
     layerId: 1,
@@ -1427,6 +1430,7 @@ function makeShape(type, a, b) {
   if (type === "optics") {
     shape.kind = _opticsKind || "convex_lens";
     shape.label = "";
+    shape.labelType = "quantity";
     shape.showLabel = false;
     shape.fillNone = true;
     // node (점) carries an always-upright text label (Feature G); labelPos picks
@@ -1520,6 +1524,7 @@ function makeCircuit(a, b) {
     p1: { x: a.x, y: a.y },   // left terminal
     p2: { x: b.x, y: b.y },   // right terminal
     label: "",                // single optional text label (empty allowed)
+    labelType: "quantity",
     strokeLevel: 0,           // 0 = black (DESIGN 2-2)
     strokeWidth: DEFAULT_STROKE_WIDTH,
     locked: false,

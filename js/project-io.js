@@ -10,10 +10,10 @@
 // which snapshots only `objects` and rebuilds groups). groupId is the single
 // source of truth, so we rebuild groups on load via that same helper.
 
-import { rebuildGroups } from "./transform.js?v=0.32.5";
-import { screenToWorld } from "./viewport.js?v=0.32.5";
-import { applyNewObjectStyleDefaults, migrateObjectStyleMode } from "./style-mode.js?v=0.32.5";
-import { DEFAULT_TEXT_SIZE_MM } from "./state.js?v=0.32.5";
+import { rebuildGroups } from "./transform.js?v=0.33.0";
+import { screenToWorld } from "./viewport.js?v=0.33.0";
+import { applyNewObjectStyleDefaults, migrateObjectStyleMode } from "./style-mode.js?v=0.33.0";
+import { DEFAULT_TEXT_SIZE_MM } from "./state.js?v=0.33.0";
 
 // Schema version of the saved file. Distinct from the app UI version.
 // 0.15 adds editing guides; older files without them load with an empty guide list.
@@ -32,6 +32,12 @@ const APPARATUS_TEMPLATE_IDS = {
   scale: "M003",
 };
 
+const LABEL_CAPABLE_TYPES = new Set(["rect", "ellipse", "line", "axes", "anglearc", "labeler", "circuit", "optics"]);
+
+function normalizeLabelType(value, fallback = "quantity") {
+  return value === "quantity" || value === "label" ? value : fallback;
+}
+
 /* ----- migrate: bring an older saved file up to the current schema ----- */
 // Currently only "0.13" exists, so this is a pass-through. As the schema
 // evolves, insert version-specific transforms here, e.g.:
@@ -45,6 +51,9 @@ function migrate(data) {
         ...obj,
         positionLocked: obj.positionLocked ?? false,
       };
+      if (LABEL_CAPABLE_TYPES.has(next.type)) {
+        next.labelType = normalizeLabelType(next.labelType, next.type === "labeler" ? "label" : "quantity");
+      }
       migrateObjectStyleMode(next);
       if (next.type === "text") {
         next.italic = next.italic ?? false;

@@ -21,10 +21,10 @@
 //               geometry on canvas drag/click via makeShape()/makeCircuit()/the ARC
 //               tool. The registry only names which tool + variant to arm.
 
-import { state } from "./state.js?v=0.32.5";
-import { armSymbol } from "./tools.js?v=0.32.5";
-import { renderObject } from "./render.js?v=0.32.5";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.32.5";
+import { state } from "./state.js?v=0.33.0";
+import { armSymbol } from "./tools.js?v=0.33.0";
+import { renderObject } from "./render.js?v=0.33.0";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.33.0";
 
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm) — matches tools.js shapes
 
@@ -60,6 +60,7 @@ export const TEMPLATES = {
         axisVariant: "cross",           // "cross" | "quadrant" | "single" (form)
         labelX: "x",
         labelY: "y",
+        labelType: "quantity",
         locked: false,
         positionLocked: false,
       };
@@ -84,6 +85,7 @@ export const TEMPLATES = {
         startAngle: 0,              // math convention (CCW positive, +Y up)
         sweepAngle: 60,             // opening of the arc (deg); CCW positive
         label: "θ",
+        labelType: "quantity",
         showLabel: true,
         strokeLevel: 0,             // 0 = black (DESIGN 2-2)
         strokeWidth: DEFAULT_STROKE_WIDTH,

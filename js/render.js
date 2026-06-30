@@ -7,7 +7,7 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.32.5";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.33.0";
 import {
   DEFAULT_TEXT_FONT,
   DEFAULT_TEXT_SIZE_MM,
@@ -16,11 +16,14 @@ import {
   EQUATION_LETTER_SPACING,
   VARIABLE_LABEL_FONT_STYLE,
   CALLOUT_LABEL_FONT_STYLE,
+  OBJECT_LABEL_TYPES,
+  OBJECT_LABEL_QUANTITY_FONT_FAMILY,
+  OBJECT_LABEL_TEXT_FONT_FAMILY,
   resolveTextFontStyle,
   resolveTextLetterSpacing,
-} from "./state.js?v=0.32.5";
-import { resolveObjectStyle } from "./style-mode.js?v=0.32.5";
-import { renderFormula } from "./formula.js?v=0.32.5";
+} from "./state.js?v=0.33.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.33.0";
+import { renderFormula } from "./formula.js?v=0.33.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -707,8 +710,7 @@ function makeUprightLabel(text, x, y, color, sizeMm = DEFAULT_TEXT_SIZE_MM, opti
   t.setAttribute("x", x);
   t.setAttribute("y", y);
   t.setAttribute("font-size", sizeMm);
-  if (options.labelKind === "callout" || options.italic === false) applyCalloutLabelFont(t);
-  else applyVariableLabelFont(t);
+  applyObjectLabelFont(t, options.labelType, options.labelKind === "callout" || options.italic === false ? "label" : "quantity");
   t.setAttribute("fill", color);
   t.setAttribute("text-anchor", "middle");
   t.setAttribute("dominant-baseline", "central");
@@ -748,7 +750,7 @@ function withBoxLabel(shapeEl, obj) {
   if (pos === "above")      ly = obj.y - gap;
   else if (pos === "below") ly = obj.y + obj.h + gap;
   else                      ly = obj.y + obj.h / 2; // center
-  const lbl = makeUprightLabel(obj.label, cx, ly, grayHex(obj.strokeLevel), size);
+  const lbl = makeUprightLabel(obj.label, cx, ly, grayHex(obj.strokeLevel), size, { labelType: obj.labelType });
   if (!lbl) return shapeEl;
   const g = document.createElementNS(SVG_NS, "g");
   if (obj.id) { g.dataset.id = obj.id; delete shapeEl.dataset.id; }
@@ -872,31 +874,41 @@ function applyDash(el, obj) {
   if (dl > 0 && dg > 0) el.setAttribute("stroke-dasharray", `${dl} ${dg}`);
 }
 
-function variableLabelFontStyle() {
-  return VARIABLE_LABEL_FONT_STYLE;
-}
-
 function applySvgTextFont(t, { family, style = "normal", weight = null, letterSpacing = null }) {
   t.setAttribute("font-family", family || DEFAULT_TEXT_FONT);
   t.setAttribute("font-style", style || "normal");
   if (weight) t.setAttribute("font-weight", weight);
-  if (letterSpacing) t.setAttribute("letter-spacing", letterSpacing);
+  if (letterSpacing != null) t.setAttribute("letter-spacing", letterSpacing);
   else t.removeAttribute("letter-spacing");
 }
 
-function applyVariableLabelFont(t) {
+function resolveLabelType(labelType, fallback = "quantity") {
+  return OBJECT_LABEL_TYPES.includes(labelType) ? labelType : fallback;
+}
+
+function applyObjectLabelFont(t, labelType, fallback = "quantity") {
+  const resolved = resolveLabelType(labelType, fallback);
+  if (resolved === "label") {
+    applySvgTextFont(t, {
+      family: OBJECT_LABEL_TEXT_FONT_FAMILY,
+      style: "normal",
+      letterSpacing: "normal",
+    });
+    return;
+  }
   applySvgTextFont(t, {
-    family: TOOL_LABEL_FONT_FAMILY,
-    style: variableLabelFontStyle(),
-    letterSpacing: EQUATION_LETTER_SPACING,
+    family: OBJECT_LABEL_QUANTITY_FONT_FAMILY,
+    style: VARIABLE_LABEL_FONT_STYLE,
+    letterSpacing: "normal",
   });
 }
 
+function applyVariableLabelFont(t) {
+  applyObjectLabelFont(t, "quantity");
+}
+
 function applyCalloutLabelFont(t) {
-  applySvgTextFont(t, {
-    family: DEFAULT_TEXT_FONT,
-    style: CALLOUT_LABEL_FONT_STYLE,
-  });
+  applyObjectLabelFont(t, "label", "label");
 }
 
 /* ----- point + travel direction at 50% of a polyline's total path length ----- */
@@ -1064,7 +1076,7 @@ function renderLine(obj) {
     // Match the straight-line external label (makeUprightLabel): HWP equation
     // stack so a dimension label (e.g. "Q") reads identically to a line
     // variable label (e.g. "H"). Style only — geometry/behavior unchanged.
-    applyVariableLabelFont(label);
+    applyObjectLabelFont(label, obj.labelType);
     label.setAttribute("text-anchor", "middle");
     label.setAttribute("dominant-baseline", "central");
     label.setAttribute("paint-order", "stroke");
@@ -1104,7 +1116,7 @@ function withLineLabel(bodyEl, obj) {
   const off = size; // fixed perpendicular gap (angle-independent)
   const lx = mx + nx * off * side;
   const ly = my + ny * off * side;
-  const lbl = makeUprightLabel(obj.label, lx, ly, grayHex(obj.strokeLevel), size);
+  const lbl = makeUprightLabel(obj.label, lx, ly, grayHex(obj.strokeLevel), size, { labelType: obj.labelType });
   if (!lbl) return bodyEl;
   const g = document.createElementNS(SVG_NS, "g");
   if (obj.id) { g.dataset.id = obj.id; if (bodyEl.dataset) delete bodyEl.dataset.id; }
@@ -1504,7 +1516,7 @@ function renderAxes(obj) {
     t.setAttribute("x", lx);
     t.setAttribute("y", ly);
     t.setAttribute("font-size", labelSize);
-    applyVariableLabelFont(t);
+    applyObjectLabelFont(t, obj.labelType);
     t.setAttribute("fill", color);
     t.setAttribute("text-anchor", anchor);
     t.setAttribute("dominant-baseline", baseline);
@@ -1579,7 +1591,7 @@ function renderAngleArc(obj) {
     t.setAttribute("x", vx + lr * Math.cos(rad));
     t.setAttribute("y", vy - lr * Math.sin(rad));
     t.setAttribute("font-size", labelSize);
-    applyVariableLabelFont(t);
+    applyObjectLabelFont(t, obj.labelType);
     t.setAttribute("fill", color);
     t.setAttribute("text-anchor", "middle");
     t.setAttribute("dominant-baseline", "middle");
@@ -1952,18 +1964,18 @@ function cLine(a, b, sw, color) {
   return l;
 }
 // A centered glyph (shared by circle-body elements + diode terminal labels + optics label).
-function cText(g, x, y, text, size, color, fontFamily = null, fontStyle = null) {
+function cText(g, x, y, text, size, color, fontFamily = null, fontStyle = null, labelType = null) {
   const t = document.createElementNS(SVG_NS, "text");
   t.setAttribute("x", x); t.setAttribute("y", y);
   t.setAttribute("font-size", size);
   if (fontFamily || fontStyle) {
     applySvgTextFont(t, {
       family: fontFamily || TOOL_LABEL_FONT_FAMILY,
-      style: fontStyle || variableLabelFontStyle(),
+      style: fontStyle || VARIABLE_LABEL_FONT_STYLE,
       letterSpacing: fontFamily ? resolveTextLetterSpacing({ fontFamily }) : EQUATION_LETTER_SPACING,
     });
   } else {
-    applyVariableLabelFont(t);
+    applyObjectLabelFont(t, labelType);
   }
   t.setAttribute("fill", color);
   t.setAttribute("text-anchor", "middle");
@@ -2101,8 +2113,8 @@ const CIRCUIT_ELEMENTS = {
     const size = DEFAULT_TEXT_SIZE_MM * 0.8;
     const sign = geo.py <= 0 ? 1 : -1;                            // perpendicular toward screen-up
     const off = H + size * 0.7;
-    if ((tl[0] ?? "") !== "") cText(g, geo.p1.x + geo.px * off * sign, geo.p1.y + geo.py * off * sign, tl[0], size, color);
-    if ((tl[1] ?? "") !== "") cText(g, geo.p2.x + geo.px * off * sign, geo.p2.y + geo.py * off * sign, tl[1], size, color);
+    if ((tl[0] ?? "") !== "") cText(g, geo.p1.x + geo.px * off * sign, geo.p1.y + geo.py * off * sign, tl[0], size, color, null, null, obj?.labelType);
+    if ((tl[1] ?? "") !== "") cText(g, geo.p2.x + geo.px * off * sign, geo.p2.y + geo.py * off * sign, tl[1], size, color, null, null, obj?.labelType);
   },
 
   // lamp: circle body with an ✕ inside.
@@ -2168,7 +2180,7 @@ function renderCircuit(obj) {
     t.setAttribute("x", mid.x + px * off * sign);
     t.setAttribute("y", mid.y + py * off * sign);
     t.setAttribute("font-size", size);
-    applyVariableLabelFont(t);
+    applyObjectLabelFont(t, obj.labelType);
     t.setAttribute("fill", color);
     t.setAttribute("text-anchor", "middle");
     t.setAttribute("dominant-baseline", "middle");
@@ -2397,7 +2409,7 @@ function renderOptics(obj) {
   // Optional label below the bbox (toggled by showLabel, like the anglearc label).
   if (obj.showLabel && (obj.label ?? "") !== "") {
     const size = DEFAULT_TEXT_SIZE_MM;
-    cText(g, obj.x + obj.w / 2, obj.y + obj.h + size * 0.8, obj.label, size, color);
+    cText(g, obj.x + obj.w / 2, obj.y + obj.h + size * 0.8, obj.label, size, color, null, null, obj.labelType);
   }
 
   const rot = obj.rotation ?? 0;
@@ -2419,7 +2431,7 @@ function renderOptics(obj) {
     const ly = (obj.labelPos ?? "above") === "below"
       ? cy + dotR + size * 0.7
       : cy - dotR - size * 0.7;
-    cText(wrap, cx, ly, obj.label, size, color);
+    cText(wrap, cx, ly, obj.label, size, color, null, null, obj.labelType);
     return wrap;
   }
   return g;

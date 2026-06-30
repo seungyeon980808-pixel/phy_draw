@@ -1,8 +1,8 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, mmToPt, ptToMm, MIN_TEXT_PT } from "./state.js?v=0.32.5";
-import { openFontModalForSelection } from "./tools.js?v=0.32.5";
-import { resolveObjectStyle } from "./style-mode.js?v=0.32.5";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, mmToPt, ptToMm, MIN_TEXT_PT, OBJECT_LABEL_TYPES } from "./state.js?v=0.33.0";
+import { openFontModalForSelection } from "./tools.js?v=0.33.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.33.0";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -206,6 +206,53 @@ export function initInspector(state) {
       });
     });
     return { row, num };
+  }
+
+  function normalizeLabelType(value, fallback = "quantity") {
+    return OBJECT_LABEL_TYPES.includes(value) ? value : fallback;
+  }
+
+  function makeLabelTypeRow(applies, fallback = "quantity") {
+    const row = document.createElement("div");
+    row.className = "insp-row";
+    const lbl = document.createElement("label");
+    lbl.className = "insp-field-label";
+    lbl.textContent = "라벨 종류";
+    const sel = document.createElement("select");
+    sel.className = "insp-input";
+    [
+      ["quantity", "물리량"],
+      ["label", "라벨"],
+    ].forEach(([value, text]) => {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = text;
+      sel.appendChild(opt);
+    });
+    row.appendChild(lbl);
+    row.appendChild(sel);
+    sel.addEventListener("change", () => {
+      const s = state.get();
+      const id = (s.selectedIds || [])[0];
+      if (!id) return;
+      const nextType = normalizeLabelType(sel.value, fallback);
+      const snap = JSON.parse(JSON.stringify(s.objects));
+      state.update((s2) => {
+        const o = s2.objects.find((it) => it.id === id);
+        if (!o || !applies(o) || o.locked) return;
+        if (normalizeLabelType(o.labelType, fallback) === nextType && o.labelType === nextType) return;
+        o.labelType = nextType;
+        s2.undoStack.push(snap);
+        s2.redoStack = [];
+      });
+    });
+    return {
+      row,
+      sel,
+      sync(obj) {
+        sel.value = normalizeLabelType(obj?.labelType, fallback);
+      },
+    };
   }
 
   // Click-to-select-all: focusing any number input selects its value so a typed
@@ -449,6 +496,8 @@ export function initInspector(state) {
   dimensionLabelRow.appendChild(dimensionLabelLbl);
   dimensionLabelRow.appendChild(dimensionLabelInp);
   sec1Body.appendChild(dimensionLabelRow);
+  const dimensionLabelTypeRow = makeLabelTypeRow((o) => o.type === "line");
+  sec1Body.appendChild(dimensionLabelTypeRow.row);
 
   /* ---- straight-line upright label (Group 3): text input + on/off toggle ----
    * Writes obj.label / obj.labelShow. When on, render.js (withLineLabel) draws
@@ -478,6 +527,8 @@ export function initInspector(state) {
   lineLabelRow.appendChild(lineLabelLbl);
   lineLabelRow.appendChild(lineLabelInp);
   sec1Body.appendChild(lineLabelRow);
+  const lineLabelTypeRow = makeLabelTypeRow((o) => o.type === "line");
+  sec1Body.appendChild(lineLabelTypeRow.row);
 
   const lineLabelShowRow = document.createElement("div");
   lineLabelShowRow.className = "insp-row";
@@ -1393,6 +1444,8 @@ export function initInspector(state) {
   labelRow.appendChild(labelLbl);
   labelRow.appendChild(labelInp);
   sec3Body.appendChild(labelRow);
+  const objectLabelTypeRow = makeLabelTypeRow((o) => o.type === "anglearc" || o.type === "optics" || o.type === "circuit");
+  sec3Body.appendChild(objectLabelTypeRow.row);
 
   // optics-only: show/hide toggle for the label (like the anglearc label visibility).
   const showLabelRow = document.createElement("div");
@@ -1512,6 +1565,8 @@ export function initInspector(state) {
   boxLabelRow.appendChild(boxLabelLbl);
   boxLabelRow.appendChild(boxLabelInp);
   sec3Body.appendChild(boxLabelRow);
+  const boxLabelTypeRow = makeLabelTypeRow((o) => o.type === "rect" || o.type === "ellipse");
+  sec3Body.appendChild(boxLabelTypeRow.row);
 
   const boxLabelPosRow = document.createElement("div");
   boxLabelPosRow.className = "insp-row";
@@ -1652,6 +1707,8 @@ export function initInspector(state) {
   }
   const axisLabelXRow = makeAxisLabelRow("X 라벨", "labelX");
   const axisLabelYRow = makeAxisLabelRow("Y 라벨", "labelY");
+  const axisLabelTypeRow = makeLabelTypeRow((o) => o.type === "axes");
+  sec3Body.appendChild(axisLabelTypeRow.row);
 
   const tickRow = document.createElement("div");
   tickRow.className = "insp-row";
@@ -1757,6 +1814,8 @@ export function initInspector(state) {
   }
   const term1 = makeTermRow("단자1", 0);
   const term2 = makeTermRow("단자2", 1);
+  const terminalLabelTypeRow = makeLabelTypeRow((o) => o.type === "circuit" && o.element === "diode");
+  sec3Body.appendChild(terminalLabelTypeRow.row);
 
   const raSizeF = makePosRow("크기", "size", "0.1");
   const raAngleF = makePosRow("각도", "angle", "1");
@@ -2182,12 +2241,18 @@ export function initInspector(state) {
     // Group-3 upright-label rows: shown only for a single rect/ellipse (box) or
     // line (set in the single-selection branch); hidden in every other case.
     boxLabelRow.style.display = "none";
+    boxLabelTypeRow.row.style.display = "none";
     boxLabelPosRow.style.display = "none";
     boxLabelSizeRow.row.style.display = "none";
     lineLabelRow.style.display = "none";
+    lineLabelTypeRow.row.style.display = "none";
     lineLabelShowRow.style.display = "none";
     lineLabelFlipRow.style.display = "none";
     lineLabelSizeRow.row.style.display = "none";
+    dimensionLabelTypeRow.row.style.display = "none";
+    objectLabelTypeRow.row.style.display = "none";
+    axisLabelTypeRow.row.style.display = "none";
+    terminalLabelTypeRow.row.style.display = "none";
 
     // Targeted state: only show ungroup button, hide everything else
     if (s.targetedId) {
@@ -2439,18 +2504,22 @@ export function initInspector(state) {
     lineModeBtnEls.middleArrow.innerHTML = `<svg width="40" height="24" viewBox="0 0 40 24">${obj.arrowVariant === "left" ? MIDDLE_LEFT_ICON : ARROW_ICONS.center}</svg>`;
     lineModeBtnEls.lengthArrow.innerHTML = `<svg width="40" height="24" viewBox="0 0 40 24">${lengthIcon(obj.dimensionVariant || "basic")}</svg>`;
     dimensionLabelRow.style.display = isStraightLine && lineMode === "lengthArrow" ? "" : "none";
+    dimensionLabelTypeRow.row.style.display = isStraightLine && lineMode === "lengthArrow" ? "" : "none";
     if (document.activeElement !== dimensionLabelInp) dimensionLabelInp.value = obj.dimensionLabel ?? "d";
+    if (isStraightLine && lineMode === "lengthArrow") dimensionLabelTypeRow.sync(obj);
 
     // Group-3 straight-line upright label: text + on/off toggle + 반전 + 크기.
     // Hidden entirely in length-display (lengthArrow) mode — the dimension label
     // along the line is shown instead, so the external label is redundant (task 3).
     const showLineLabel = isStraightLine && lineMode !== "lengthArrow";
     lineLabelRow.style.display = showLineLabel ? "" : "none";
+    lineLabelTypeRow.row.style.display = showLineLabel ? "" : "none";
     lineLabelShowRow.style.display = showLineLabel ? "" : "none";
     lineLabelFlipRow.style.display = showLineLabel ? "" : "none";
     lineLabelSizeRow.row.style.display = showLineLabel ? "" : "none";
     if (showLineLabel) {
       if (document.activeElement !== lineLabelInp) lineLabelInp.value = obj.label ?? "";
+      lineLabelTypeRow.sync(obj);
       lineLabelShowCb.checked = obj.labelShow === true;
       if (document.activeElement !== lineLabelSizeRow.num) {
         lineLabelSizeRow.num.value = Math.round(mmToPt(obj.labelSize || DEFAULT_TEXT_SIZE_MM));
@@ -2529,7 +2598,9 @@ export function initInspector(state) {
     scaleTextRow.style.display = isApparatus && appKind === "scale" ? "" : "none";
     // Single 라벨 row: arc, optics, and all circuits EXCEPT diode (which uses 단자1/2).
     const isNode = isOptics && obj.kind === "node";
-    labelRow.style.display = (isArc || isOptics || (isCircuit && !isDiode)) ? "" : "none";
+    const showObjectLabel = isArc || isOptics || (isCircuit && !isDiode);
+    labelRow.style.display = showObjectLabel ? "" : "none";
+    objectLabelTypeRow.row.style.display = showObjectLabel ? "" : "none";
     // node uses a label-position dropdown instead of the show/hide toggle.
     showLabelRow.style.display = (isOptics && !isNode) ? "" : "none";
     labelPosRow.style.display = isNode ? "" : "none";
@@ -2546,10 +2617,12 @@ export function initInspector(state) {
     // Group-3 box upright label: rect/ellipse only (text + center/above/below).
     const isBoxLabelType = obj.type === "rect" || obj.type === "ellipse";
     boxLabelRow.style.display = isBoxLabelType ? "" : "none";
+    boxLabelTypeRow.row.style.display = isBoxLabelType ? "" : "none";
     boxLabelPosRow.style.display = isBoxLabelType ? "" : "none";
     boxLabelSizeRow.row.style.display = isBoxLabelType ? "" : "none";
     if (isBoxLabelType) {
       if (document.activeElement !== boxLabelInp) boxLabelInp.value = obj.label ?? "";
+      boxLabelTypeRow.sync(obj);
       boxLabelPosSel.value = ["center", "above", "below"].includes(obj.labelPos) ? obj.labelPos : "center";
       if (document.activeElement !== boxLabelSizeRow.num) {
         boxLabelSizeRow.num.value = Math.round(mmToPt(obj.labelSize || DEFAULT_TEXT_SIZE_MM));
@@ -2559,10 +2632,12 @@ export function initInspector(state) {
     circuitHeightF.el.style.display = hasCircuitHeight ? "" : "none";
     term1.el.style.display = isDiode ? "" : "none";
     term2.el.style.display = isDiode ? "" : "none";
+    terminalLabelTypeRow.row.style.display = isDiode ? "" : "none";
     // axes-only rows. single variant ignores labelY → hide that one row.
     axisVarRow.style.display = isAxes ? "" : "none";
     axisLabelXRow.row.style.display = isAxes ? "" : "none";
     axisLabelYRow.row.style.display = (isAxes && axisVariant !== "single") ? "" : "none";
+    axisLabelTypeRow.row.style.display = isAxes ? "" : "none";
     tickRow.style.display = isAxes ? "" : "none";
     // lens-only center dashed-line row.
     const isLens = isOptics && (obj.kind === "convex_lens" || obj.kind === "concave_lens");
@@ -2603,6 +2678,7 @@ export function initInspector(state) {
     if ((isCircuit && !isDiode || isOptics) && document.activeElement !== labelInp) {
       labelInp.value  = obj.label ?? "";
     }
+    if (showObjectLabel) objectLabelTypeRow.sync(obj);
     if (isOptics) showLabelCb.checked = !!obj.showLabel;
     if (isNode) labelPosSel.value = (obj.labelPos === "below") ? "below" : "above";
     if (isLens) centerLineSel.value = styleObj.centerLine || "none";
@@ -2617,6 +2693,7 @@ export function initInspector(state) {
       const tl = Array.isArray(obj.terminalLabels) ? obj.terminalLabels : ["", ""];
       if (document.activeElement !== term1.inp) term1.inp.value = tl[0] ?? "";
       if (document.activeElement !== term2.inp) term2.inp.value = tl[1] ?? "";
+      terminalLabelTypeRow.sync(obj);
     }
     if (isAxes) {
       Object.entries(axisVarBtns).forEach(([id, btn]) => {
@@ -2626,6 +2703,7 @@ export function initInspector(state) {
       });
       if (document.activeElement !== axisLabelXRow.inp) axisLabelXRow.inp.value = obj.labelX ?? "";
       if (document.activeElement !== axisLabelYRow.inp) axisLabelYRow.inp.value = obj.labelY ?? "";
+      axisLabelTypeRow.sync(obj);
       if (document.activeElement !== tickInp) tickInp.value = (obj.tickSpacing ?? 5).toString();
     }
 
@@ -2647,9 +2725,16 @@ export function initInspector(state) {
     showLabelCb.disabled = !!obj.locked;
     labelPosSel.disabled = !!obj.locked;
     boxLabelInp.disabled = !!obj.locked;
+    boxLabelTypeRow.sel.disabled = !!obj.locked;
     boxLabelPosSel.disabled = !!obj.locked;
     lineLabelInp.disabled = !!obj.locked;
+    lineLabelTypeRow.sel.disabled = !!obj.locked;
     lineLabelShowCb.disabled = !!obj.locked;
+    dimensionLabelInp.disabled = !!obj.locked;
+    dimensionLabelTypeRow.sel.disabled = !!obj.locked;
+    objectLabelTypeRow.sel.disabled = !!obj.locked;
+    terminalLabelTypeRow.sel.disabled = !!obj.locked;
+    axisLabelTypeRow.sel.disabled = !!obj.locked;
     gapInp.disabled = !!obj.locked;
     circuitHeightF.inp.disabled = !!obj.locked;
     term1.inp.disabled = !!obj.locked;

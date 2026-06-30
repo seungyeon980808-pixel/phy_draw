@@ -7,7 +7,7 @@
 // `viewBox` mirrors the SVG viewBox and is the ONLY coordinate authority
 // (DESIGN 1-2). Zoom/pan mutate this, never a CSS transform.
 
-import { createStore } from "./store.js?v=0.32.5";
+import { createStore } from "./store.js?v=0.33.0";
 
 export const TEXT_FONT_FAMILY = '"돋움", "Dotum", "Apple SD Gothic Neo", "맑은 고딕", "Malgun Gothic", sans-serif';
 export const EQUATION_FONT_FAMILY = '"HYhwpEQ", "HWhwpEQ", "Cambria Math", "Times New Roman", "Batang", "바탕", serif';
@@ -16,6 +16,9 @@ export const EQUATION_LETTER_SPACING = "-0.04em";
 export const TOOL_LABEL_FONT_FAMILY = EQUATION_FONT_FAMILY;
 export const VARIABLE_LABEL_FONT_STYLE = "italic";
 export const CALLOUT_LABEL_FONT_STYLE = "normal";
+export const OBJECT_LABEL_TYPES = ["quantity", "label"];
+export const OBJECT_LABEL_QUANTITY_FONT_FAMILY = '"Times New Roman", "Cambria Math", "HYhwpEQ", "HWhwpEQ", "Batang", "바탕", serif';
+export const OBJECT_LABEL_TEXT_FONT_FAMILY = TEXT_FONT_FAMILY;
 
 function normalizeFontFamily(value) {
   return String(value || "")
