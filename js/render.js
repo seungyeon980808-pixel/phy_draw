@@ -7,10 +7,10 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.22.0";
-import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.22.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.22.0";
-import { renderFormula } from "./formula.js?v=0.22.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.23.0";
+import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.23.0";
+import { resolveObjectStyle } from "./style-mode.js?v=0.23.0";
+import { renderFormula } from "./formula.js?v=0.23.0";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -156,20 +156,6 @@ export function render(state) {
       if (topEnd > vb.y) addDragZone(guide.position, vb.y, guide.position, topEnd);
       if (bottomStart < vb.y + vb.h) {
         addDragZone(guide.position, bottomStart, guide.position, vb.y + vb.h);
-      }
-    } else if (sel.type === "rightangle") {
-      const _bb = singleObjBBox(sel, scene);
-      if (_bb) {
-        const box = document.createElementNS(SVG_NS, "rect");
-        box.setAttribute("x", _bb.x);
-        box.setAttribute("y", _bb.y);
-        box.setAttribute("width", _bb.w);
-        box.setAttribute("height", _bb.h);
-        box.setAttribute("fill", "none");
-        box.setAttribute("stroke-width", "0.4");
-        box.setAttribute("stroke-dasharray", "0.6 0.6");
-        box.style.stroke = _selColor;
-        scene.appendChild(box);
       }
     } else {
       const leftEnd = Math.min(-_abW / 2, vb.x + vb.w);
