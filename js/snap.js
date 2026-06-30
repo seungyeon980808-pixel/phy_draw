@@ -1,4 +1,4 @@
-﻿/* ===== SNAP: Shift-only body-move magnet and preview =====
+/* ===== SNAP: Shift-only body-move magnet and preview =====
  *
  * transform.js calls resolveSnap() once per body-move mousemove, before
  * applyDelta(). Distances are measured in world units after converting the
@@ -8,7 +8,7 @@
  * line, and polyline objects also contribute finite contact edges.
  */
 
-import { rotPt, singleObjBBox, curveSamplePoints } from "./render.js?v=0.31.0";
+import { rotPt, singleObjBBox, curveSamplePoints } from "./render.js?v=0.31.1";
 
 const ATTACH_PX = 40;
 const PREVIEW_PX = 80;

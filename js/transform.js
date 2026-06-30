@@ -1,4 +1,4 @@
-﻿/* ===== TRANSFORM (DESIGN 吏? select-tool MOVE + snapshot-based Undo/Redo) ===== */
+/* ===== TRANSFORM (DESIGN 吏? select-tool MOVE + snapshot-based Undo/Redo) ===== */
 //
 // Owns two concerns:
 //   1. Body-drag MOVE of the selected object (V tool only).
@@ -13,10 +13,10 @@
 // we can distinguish "click on already-selected ??move allowed" from "click
 // selects a new object ??just select, no move this press."
 
-import { screenToWorld, getRenderScale } from "./viewport.js?v=0.31.0";
-import { resolveSnap, resolveEndpointSnap, resolveRadialCenterSnap } from "./snap.js?v=0.31.0";
-import { setSnapPreview } from "./render.js?v=0.31.0";
-import { pickSelectableObjectFromEvent } from "./tools.js?v=0.31.0";
+import { screenToWorld, getRenderScale } from "./viewport.js?v=0.31.1";
+import { resolveSnap, resolveEndpointSnap, resolveRadialCenterSnap } from "./snap.js?v=0.31.1";
+import { setSnapPreview } from "./render.js?v=0.31.1";
+import { pickSelectableObjectFromEvent } from "./tools.js?v=0.31.1";
 
 /* ----- shared lock guard: locked objects are excluded from mutating ops ----- */
 function isMutable(o) { return o && !o.locked; }

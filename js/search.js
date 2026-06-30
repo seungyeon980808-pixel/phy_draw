@@ -1,11 +1,11 @@
-﻿/* ===== OBJECT SEARCH (registry filtering + modal interaction only) ===== */
+/* ===== OBJECT SEARCH (registry filtering + modal interaction only) ===== */
 
 import {
   TEMPLATES,
   activateTemplate,
   buildSymbolIcon,
   sizeIconViewBox,
-} from "./templates.js?v=0.31.0";
+} from "./templates.js?v=0.31.1";
 
 const CATEGORY_ORDER = ["공통", "광학", "회로", "역학"];
 

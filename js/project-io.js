@@ -1,4 +1,4 @@
-﻿/* ===== PROJECT I/O (save / open editable source as JSON) ===== */
+/* ===== PROJECT I/O (save / open editable source as JSON) ===== */
 //
 // This is the *editable source* format — the data needed to reconstruct the
 // drawing — and is separate from image export (built later). We serialize only
@@ -10,9 +10,9 @@
 // which snapshots only `objects` and rebuilds groups). groupId is the single
 // source of truth, so we rebuild groups on load via that same helper.
 
-import { rebuildGroups } from "./transform.js?v=0.31.0";
-import { screenToWorld } from "./viewport.js?v=0.31.0";
-import { applyNewObjectStyleDefaults, migrateObjectStyleMode } from "./style-mode.js?v=0.31.0";
+import { rebuildGroups } from "./transform.js?v=0.31.1";
+import { screenToWorld } from "./viewport.js?v=0.31.1";
+import { applyNewObjectStyleDefaults, migrateObjectStyleMode } from "./style-mode.js?v=0.31.1";
 
 // Schema version of the saved file. Distinct from the app UI version.
 // 0.15 adds editing guides; older files without them load with an empty guide list.

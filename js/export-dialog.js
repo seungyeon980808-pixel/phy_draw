@@ -1,4 +1,4 @@
-﻿/* ===== EXPORT DIALOG (파일 dropdown + image-export modal) ===== */
+/* ===== EXPORT DIALOG (파일 dropdown + image-export modal) ===== */
 //
 // Owns two pieces of top-bar UI, both kept out of index.html so markup stays
 // minimal (mirrors project-io.js's dynamically-created file input):
@@ -11,8 +11,8 @@
 //      with 취소 / 내보내기. On 내보내기 it delegates to svg-export.js's
 //      exportPng() or exportSvg(); the extension is appended from the format.
 
-import { exportPng, exportSvg } from "./svg-export.js?v=0.31.0";
-import { registerTopMenu } from "./top-menu.js?v=0.31.0";
+import { exportPng, exportSvg } from "./svg-export.js?v=0.31.1";
+import { registerTopMenu } from "./top-menu.js?v=0.31.1";
 
 const DEFAULT_NAME = "physics_drawing";
 

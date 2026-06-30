@@ -1,4 +1,4 @@
-﻿/* ===== TEMPLATES (the SINGLE object registry — DESIGN 1-1) ===== */
+/* ===== TEMPLATES (the SINGLE object registry — DESIGN 1-1) ===== */
 //
 // One registry is the source of truth for EVERY library object. The left panel is
 // rendered FROM this registry (no hardcoded buttons in index.html), and each entry
@@ -21,10 +21,10 @@
 //               geometry on canvas drag/click via makeShape()/makeCircuit()/the ARC
 //               tool. The registry only names which tool + variant to arm.
 
-import { state } from "./state.js?v=0.31.0";
-import { armSymbol } from "./tools.js?v=0.31.0";
-import { renderObject } from "./render.js?v=0.31.0";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.31.0";
+import { state } from "./state.js?v=0.31.1";
+import { armSymbol } from "./tools.js?v=0.31.1";
+import { renderObject } from "./render.js?v=0.31.1";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.31.1";
 
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm) — matches tools.js shapes
 
@@ -204,7 +204,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const ICON_PX = 16;          // tool-ico render box (matches css .tool-btn kbd .tool-ico)
 const ICON_STROKE_PX = 1.1;  // target on-screen stroke weight (≈ the base-tool icons)
 const CIRCUIT_PALETTE_LABELS = { resistor: "R", inductor: "L", capacitor: "C", voltmeter: "V", ammeter: "A" };
-const SHORTCUT_LABELS = { axes: "X", anglearc: "A", rightangle: "Shift+G" };
+const SHORTCUT_LABELS = { axes: "X", anglearc: "A", rightangle: "Shift+G", node: "N" };
 
 // Representative bounding boxes (world mm) per OPTICS kind — only drives the icon's
 // aspect ratio; the viewBox auto-fits afterwards. fillNone keeps shapes hollow.
@@ -347,6 +347,7 @@ function makeSymbolButton(id, def, pending) {
   btn.type = "button";
   btn.dataset.symbol = id;               // UNIQUE per-object id — drives the single-highlight fix
   btn.title = SHORTCUT_LABELS[id] ? `${def.label} (${SHORTCUT_LABELS[id]})` : def.label;
+  btn.setAttribute("aria-label", btn.title); // keep tooltip + a11y label consistent
 
   const kbd = document.createElement("kbd");
   const label = CIRCUIT_PALETTE_LABELS[id];

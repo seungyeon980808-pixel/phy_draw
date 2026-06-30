@@ -1,4 +1,4 @@
-﻿/* ===== RENDER (DESIGN 1-1: SVG is a projection of state.objects) ===== */
+/* ===== RENDER (DESIGN 1-1: SVG is a projection of state.objects) ===== */
 //
 // render(state) repaints the <g id="scene"> from data. It is registered as a
 // store subscriber in main.js, so ANY state.update() repaints automatically ??// no caller ever invokes render() by hand. That is the data-as-truth proof.
@@ -7,10 +7,10 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.31.0";
-import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.31.0";
-import { resolveObjectStyle } from "./style-mode.js?v=0.31.0";
-import { renderFormula } from "./formula.js?v=0.31.0";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.31.1";
+import { DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, CIRCUIT_BODY_MM } from "./state.js?v=0.31.1";
+import { resolveObjectStyle } from "./style-mode.js?v=0.31.1";
+import { renderFormula } from "./formula.js?v=0.31.1";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -1010,7 +1010,11 @@ function renderLine(obj) {
     label.setAttribute("y", my);
     label.setAttribute("fill", color);
     label.setAttribute("font-size", Math.max(2.5, sw * 8));
-    label.setAttribute("font-family", DEFAULT_TEXT_FONT);
+    // Match the straight-line external label (makeUprightLabel): italic serif /
+    // 신명조 stack so a dimension label (e.g. "Q") reads identically to a line
+    // variable label (e.g. "H"). Style only — geometry/behavior unchanged.
+    label.setAttribute("font-family", LABEL_FONT);
+    label.setAttribute("font-style", "italic");
     label.setAttribute("text-anchor", "middle");
     label.setAttribute("dominant-baseline", "central");
     label.setAttribute("paint-order", "stroke");
