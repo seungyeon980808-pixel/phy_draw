@@ -18,7 +18,7 @@ import {
   EQUATION_FONT_FAMILY,
   resolveTextFontStyle, resolveTextLetterSpacing,
   normalizeTextRuns, normalizeTextRunStyle, textRunStyleFromObject, textRunsToText,
-  hasStyledTextRuns,
+  hasStyledTextRuns, SECTION_ROMAN_STYLE, QUANTITY_STYLE,
 } from "./state.js?v=0.36.7";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
@@ -2051,7 +2051,11 @@ function _caretIndexFromPoint(clientX, clientY) {
   return index == null ? null : Math.max(0, Math.min(_textEditor.value.length, index));
 }
 
-const FORMULA_SYMBOLS = ["θ", "λ", "Δ", "μ", "π", "→", "←", "±", "×", "₀", "₁", "₂", "₃", "²", "³", "Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ"];
+// Greek/operators/scripts inserted literally into the formula source. Roman
+// numerals are intentionally NOT here: they belong to the styled symbol palette
+// (_buildSymbolPalette) which inserts ASCII I/II/III as Times-serif runs, not
+// plain Unicode Ⅰ/Ⅱ/Ⅲ characters.
+const FORMULA_SYMBOLS = ["θ", "λ", "Δ", "μ", "π", "→", "←", "±", "×", "₀", "₁", "₂", "₃", "²", "³"];
 const EDITOR_FONT_OPTIONS = [
   { label: "기본 (돋움)", css: TEXT_FONTS[0]?.css || DEFAULT_TEXT_FONT },
   { label: "기본 명조", css: "serif" },
@@ -2133,14 +2137,57 @@ function _currentUnifiedStyle() {
   };
 }
 
+/* ----- run-list slicing: return the [start,end) character window of a run list
+ * as its own run array, splitting runs at the boundaries. Preserves each run's
+ * style, so styled (palette) symbols keep their font when text around them edits. */
+function _sliceRuns(runs, start, end) {
+  const out = [];
+  let pos = 0;
+  for (const r of runs) {
+    const text = String(r.text ?? "");
+    const rStart = pos, rEnd = pos + text.length;
+    const s = Math.max(start, rStart), e = Math.min(end, rEnd);
+    if (s < e) out.push({ text: text.slice(s - rStart, e - rStart), style: r.style });
+    pos = rEnd;
+    if (pos >= end) break;
+  }
+  return out;
+}
+
+// Merge/normalize a raw run list against the draft's base style (drops empties,
+// coalesces adjacent same-style runs, fills missing style fields).
+function _normalizeRunList(draft, list) {
+  return normalizeTextRuns({ ...draft, textRuns: list });
+}
+
+/* Reconcile draft.textRuns to a new plain-text value WITHOUT discarding styled
+ * runs. The old value is the runs' current text; the changed span is found via a
+ * common prefix/suffix diff. Only the typed-over region is rebuilt (as a plain
+ * base-style run); untouched runs — including palette-inserted symbols — survive.
+ * This replaces the old flatten-to-one-run behavior that erased symbol styling. */
 function _syncDraftRunsToText(draft, raw) {
   if (!draft) return;
-  const current = textRunsToText(draft.textRuns || []);
-  if (current === raw) return;
-  draft.textRuns = raw ? [{ text: raw, style: textRunStyleFromObject(draft) }] : [];
+  const runs = normalizeTextRuns(draft);
+  const oldValue = textRunsToText(runs);
+  const newValue = String(raw ?? "");
+  if (oldValue === newValue) { draft.textRuns = runs; return; }
+  const oldLen = oldValue.length, newLen = newValue.length;
+  let p = 0;
+  while (p < oldLen && p < newLen && oldValue[p] === newValue[p]) p++;
+  let sfx = 0;
+  while (sfx < (oldLen - p) && sfx < (newLen - p) &&
+         oldValue[oldLen - 1 - sfx] === newValue[newLen - 1 - sfx]) sfx++;
+  const head = _sliceRuns(runs, 0, p);
+  const tail = _sliceRuns(runs, oldLen - sfx, oldLen);
+  const midText = newValue.slice(p, newLen - sfx);
+  const mid = midText ? [{ text: midText, style: textRunStyleFromObject(draft) }] : [];
+  draft.textRuns = _normalizeRunList(draft, [...head, ...mid, ...tail]);
 }
 
 function _setDraftWholeTextStyle(draft, style) {
+  // Re-style existing runs BEFORE mutating the object base, so role runs keep the
+  // font metadata they were inserted with.
+  const runs = normalizeTextRuns(draft);
   Object.assign(draft, {
     fontFamily: style.fontFamily,
     fontSize: style.fontSize,
@@ -2149,8 +2196,17 @@ function _setDraftWholeTextStyle(draft, style) {
     italic: style.italic,
     letterSpacing: resolveTextLetterSpacing(style),
   });
-  const text = draft.text ?? "";
-  draft.textRuns = text ? [{ text, style: normalizeTextRunStyle(style, draft) }] : [];
+  const base = normalizeTextRunStyle(style, draft);
+  // Whole-text font/size/bold/italic applies to plain (role: normal) runs only.
+  // Palette-inserted symbols (sectionRoman/quantity) keep their own Times font;
+  // they only inherit the new size so the symbol scales with the rest of the text.
+  draft.textRuns = runs.map((r) => {
+    const role = (r.style && r.style.role) || "normal";
+    if (role !== "normal") {
+      return { text: r.text, style: { ...r.style, fontSize: base.fontSize } };
+    }
+    return { text: r.text, style: base };
+  });
 }
 
 // 글꼴/크기/굵게/기울임을 항상 "전체 텍스트"에 적용한다. 부분(선택 글자) 서식은
@@ -2202,6 +2258,91 @@ function _insertIntoUnifiedText(value, cursorOffset = null) {
 function _insertFormulaTemplate(template) {
   const firstEmpty = template.indexOf("{}");
   _insertIntoUnifiedText(template, firstEmpty >= 0 ? firstEmpty + 1 : null);
+}
+
+/* ----- symbol palette: insert a STYLED run at the caret -----
+ * Unlike _insertIntoUnifiedText (which drops a plain character and lets the whole
+ * text share one font), this splices a run carrying its own role/font metadata
+ * into draft.textRuns, so the inserted I/II/III or m/v/F/a/t renders in its Times
+ * font while the surrounding Korean stays normal. The caret/selection was cached
+ * on the button's mousedown (before focus moved), so we honor a selected range by
+ * replacing it. Never routes through the plain-text flattener. */
+function _insertStyledRun(text, symbolStyle) {
+  if (!_textEditor) return;
+  const draft = _state.get().draftText;
+  if (!draft) return;
+  const value = _textEditor.value;
+  const sel = _textSelection || { start: value.length, end: value.length };
+  const start = Math.max(0, Math.min(sel.start, value.length));
+  const end = Math.max(start, Math.min(sel.end, value.length));
+
+  const runs = normalizeTextRuns({ ...draft, text: value });
+  const head = _sliceRuns(runs, 0, start);
+  const tail = _sliceRuns(runs, end, value.length);
+  const styledRun = { text: String(text), style: normalizeTextRunStyle(symbolStyle, draft) };
+  const nextRuns = _normalizeRunList(draft, [...head, styledRun, ...tail]);
+  const nextValue = textRunsToText(nextRuns);
+  const caret = start + String(text).length;
+
+  _state.update((s) => {
+    if (!s.draftText) return;
+    s.draftText.textRuns = nextRuns;
+    s.draftText.text = nextValue;
+    s.draftText.source = nextValue;
+    s.draftText.rawSource = nextValue;
+    // A styled symbol is plain-text content, never a formula — keep the plain
+    // preview/commit path so the run metadata (not TeX) drives rendering.
+    s.draftText.contentMode = "plain";
+  });
+
+  _textEditor.value = nextValue;
+  _textEditor.rows = Math.max(1, nextValue.split("\n").length);
+  _textEditor.setSelectionRange(caret, caret);
+  _textSelection = { start: caret, end: caret };
+  _refreshUnifiedPreview();
+  _updateTextDebug();
+  _textEditor.focus();
+}
+
+// Palette button that keeps the textarea's caret/selection: caches the range on
+// mousedown (before the button steals focus), then inserts the styled run.
+function _symbolPaletteButton(label, text, symbolStyle, title) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "formula-palette-btn symbol-palette-btn";
+  b.textContent = label;
+  b.title = title || `${label} 삽입`;
+  b.addEventListener("mousedown", (e) => { e.preventDefault(); _cacheTextSelection(); });
+  b.addEventListener("click", (e) => { e.preventDefault(); _insertStyledRun(text, symbolStyle); });
+  return b;
+}
+
+// The symbol palette proper: 구간 번호(sectionRoman, upright Times) + 물리량
+// (quantity, italic Times). Each button inserts a styled run, NOT a plain char.
+function _buildSymbolPalette() {
+  const panel = document.createElement("div");
+  panel.className = "unified-symbol-panel";
+
+  const romanRow = document.createElement("div");
+  romanRow.className = "formula-palette-row symbol-palette-row";
+  const romanTag = document.createElement("span");
+  romanTag.className = "symbol-palette-tag";
+  romanTag.textContent = "구간";
+  romanRow.appendChild(romanTag);
+  [["I", "I"], ["II", "II"], ["III", "III"]].forEach(([label, text]) =>
+    romanRow.appendChild(_symbolPaletteButton(label, text, SECTION_ROMAN_STYLE, `구간 ${label} (Times 정체)`)));
+
+  const qtyRow = document.createElement("div");
+  qtyRow.className = "formula-palette-row symbol-palette-row";
+  const qtyTag = document.createElement("span");
+  qtyTag.className = "symbol-palette-tag";
+  qtyTag.textContent = "물리량";
+  qtyRow.appendChild(qtyTag);
+  ["m", "v", "F", "a", "t"].forEach((ch) =>
+    qtyRow.appendChild(_symbolPaletteButton(ch, ch, QUANTITY_STYLE, `물리량 ${ch} (Times 이탤릭)`)));
+
+  panel.append(romanRow, qtyRow);
+  return panel;
 }
 
 function _buildUnifiedFormulaPanel() {
@@ -2485,6 +2626,7 @@ function _openUnifiedTextEditor(draft, clientX, clientY, prefill) {
   hint.textContent = "Enter 줄바꿈 · Ctrl+Enter 확인";
 
   _textFormulaPanel = _buildUnifiedFormulaPanel();
+  const symbolPanel = _buildSymbolPalette();
 
   const actions = document.createElement("div");
   actions.className = "unified-editor-actions";
@@ -2496,7 +2638,7 @@ function _openUnifiedTextEditor(draft, clientX, clientY, prefill) {
   ok.addEventListener("click", () => _commitText());
   actions.append(cancel, ok);
 
-  _textBox.append(title, previewLabel, _textPreview, styleControls, row, hint, _textFormulaPanel, actions);
+  _textBox.append(title, previewLabel, _textPreview, styleControls, row, hint, symbolPanel, _textFormulaPanel, actions);
   _textBox.addEventListener("keydown", (ke) => {
     if (ke.key === "Enter" && (ke.ctrlKey || ke.metaKey)) {
       ke.preventDefault();

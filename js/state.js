@@ -91,6 +91,7 @@ export function textRunStyleFromObject(obj = {}) {
     ? obj.italic
     : obj.fontStyle === "italic" || isEquationFontFamily(obj.fontFamily);
   return {
+    role: obj.role || "normal",
     fontFamily: obj.fontFamily || DEFAULT_TEXT_FONT,
     fontSize: obj.fontSize || DEFAULT_TEXT_SIZE_MM,
     fontWeight: obj.fontWeight || "normal",
@@ -106,6 +107,9 @@ export function normalizeTextRunStyle(style = {}, fallback = {}) {
     ? style.italic
     : style.fontStyle === "italic" || base.italic;
   return {
+    // role carries palette-inserted symbol metadata (sectionRoman/quantity). It is
+    // the reason a run keeps its own font instead of the object's whole-text font.
+    role: style.role || base.role || "normal",
     fontFamily: style.fontFamily || base.fontFamily,
     fontSize: Number.isFinite(style.fontSize) ? style.fontSize : base.fontSize,
     fontWeight: style.fontWeight || (style.bold ? "bold" : base.fontWeight),
@@ -116,13 +120,33 @@ export function normalizeTextRunStyle(style = {}, fallback = {}) {
 }
 
 function sameTextRunStyle(a = {}, b = {}) {
-  return a.fontFamily === b.fontFamily &&
+  return (a.role || "normal") === (b.role || "normal") &&
+    a.fontFamily === b.fontFamily &&
     a.fontSize === b.fontSize &&
     a.fontWeight === b.fontWeight &&
     a.italic === b.italic &&
     a.underline === b.underline &&
     a.strikeout === b.strikeout;
 }
+
+/* ----- symbol-palette run styles (DESIGN: palette inserts STYLED runs) -----
+ * A palette button does NOT insert a plain character; it inserts a run carrying
+ * its own font metadata via `role`. sectionRoman = Times New Roman upright (구간
+ * 번호 I/II/III); quantity = Times New Roman italic (물리량 m/v/F/a/t). These are
+ * merged onto the object/draft base style by normalizeTextRunStyle, so size is
+ * inherited from the current text while font-family/style come from the role. */
+export const SECTION_ROMAN_STYLE = Object.freeze({
+  role: "sectionRoman",
+  fontFamily: '"Times New Roman", serif',
+  fontWeight: "normal",
+  italic: false,
+});
+export const QUANTITY_STYLE = Object.freeze({
+  role: "quantity",
+  fontFamily: '"Times New Roman", serif',
+  fontWeight: "normal",
+  italic: true,
+});
 
 export function normalizeTextRuns(obj = {}) {
   const sourceRuns = Array.isArray(obj.textRuns) && obj.textRuns.length
@@ -149,7 +173,14 @@ export function normalizeTextRuns(obj = {}) {
 // 담당한다. 선택 글자 서식이 제거되어 새 객체는 다중 런을 만들지 않으며, 오직 예전 저장
 // 파일만 다중 런을 가질 수 있다. 그런 경우에만 명시적 런을 보존한다.
 export function hasStyledTextRuns(obj = {}) {
-  return Array.isArray(obj.textRuns) && obj.textRuns.length > 1;
+  const runs = obj.textRuns;
+  if (!Array.isArray(runs) || !runs.length) return false;
+  // Multiple runs = real per-run formatting. A single run also counts when it is a
+  // palette-inserted symbol (role !== normal), so a lone I/F still renders styled
+  // instead of falling back to the plain path (which would drop its Times font).
+  if (runs.length > 1) return true;
+  const role = runs[0] && runs[0].style && runs[0].style.role;
+  return !!(role && role !== "normal");
 }
 
 export function textRunsToText(runs = []) {

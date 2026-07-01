@@ -1000,6 +1000,23 @@ textarea.unified-text-input {
   gap: 4px;
   min-width: 0;
 }
+
+/* 기호 팔레트: 구간 번호(정체 Times) / 물리량(이탤릭 Times) 스타일 런을 삽입 */
+.unified-symbol-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--c-line, #d0d7de);
+}
+.symbol-palette-row { align-items: center; }
+.symbol-palette-tag {
+  min-width: 40px;
+  font-size: 11px;
+  color: var(--text-secondary, #57606a);
+}
+.symbol-palette-btn { min-width: 30px; font-weight: 600; }
 .unified-editor-actions {
   display: flex;
   justify-content: flex-end;
