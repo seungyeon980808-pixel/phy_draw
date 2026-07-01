@@ -7,7 +7,7 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.36.3";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.36.4";
 import {
   DEFAULT_TEXT_FONT,
   DEFAULT_TEXT_SIZE_MM,
@@ -23,9 +23,9 @@ import {
   splitRomanRuns,
   resolveTextFontStyle,
   resolveTextLetterSpacing,
-} from "./state.js?v=0.36.3";
-import { resolveObjectStyle } from "./style-mode.js?v=0.36.3";
-import { renderFormula } from "./formula.js?v=0.36.3";
+} from "./state.js?v=0.36.4";
+import { resolveObjectStyle } from "./style-mode.js?v=0.36.4";
+import { renderFormula } from "./formula.js?v=0.36.4";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -1458,7 +1458,7 @@ function renderText(obj) {
       const ts = document.createElementNS(SVG_NS, "tspan");
       ts.setAttribute("x", obj.x);
       ts.setAttribute("dy", i === 0 ? "0" : obj.fontSize * 1.4);
-      fillTextWithRomanRuns(ts, line || "혻"); // non-breaking space keeps empty lines tall
+      fillTextWithRomanRuns(ts, line || " "); // non-breaking space keeps empty lines tall
       el.appendChild(ts);
     });
   }

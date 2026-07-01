@@ -11,19 +11,19 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.36.3";
+import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.36.4";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt, MIN_TEXT_PT,
   EQUATION_FONT_FAMILY, ROMAN_NUMERAL_FONT_FAMILY, splitRomanRuns,
   isEquationFontFamily, resolveTextFontStyle, resolveTextLetterSpacing,
-} from "./state.js?v=0.36.3";
+} from "./state.js?v=0.36.4";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.36.3";
-import { resolveEndpointSnap } from "./snap.js?v=0.36.3";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.36.3";
-import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.36.3";
+import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.36.4";
+import { resolveEndpointSnap } from "./snap.js?v=0.36.4";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.36.4";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.36.4";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -1093,6 +1093,7 @@ export function insertLabelerChar(ch) {
     ta.value = ta.value.slice(0, start) + s + ta.value.slice(end);
     const caret = start + s.length;
     ta.setSelectionRange(caret, caret);
+    ta.dispatchEvent(new Event("input")); // refresh the live preview
     ta.focus();
     return;
   }
@@ -1129,8 +1130,16 @@ function _openSmallTextEditor(objId, { type = "labeler", field = "text", title =
   titleEl.className = "unified-editor-title";
   titleEl.textContent = title;
 
+  // Live preview (roman-numeral serif aware) — same separated chrome as the
+  // text-tool dialog: 미리보기 on top, editable textarea below.
+  const previewLabel = document.createElement("div");
+  previewLabel.className = "unified-preview-label";
+  previewLabel.textContent = "미리보기";
+  const preview = document.createElement("div");
+  preview.className = "unified-preview";
+
   const hint = document.createElement("div");
-  hint.className = "unified-preview-label";
+  hint.className = "unified-editor-hint";
   hint.textContent = "Enter 줄바꿈 · Ctrl+Enter 확인";
 
   const ta = document.createElement("textarea");
@@ -1195,6 +1204,26 @@ function _openSmallTextEditor(objId, { type = "labeler", field = "text", title =
     });
   }
 
+  // Live preview refresh: mirrors the canvas — roman numerals (I·II·III) render in
+  // the serif/Myeongjo run (upright), and the current 글씨체/글씨 크기 apply. Uses the
+  // shared fillHtmlWithRomanRuns so preview == committed SVG (same splitRomanRuns).
+  const refreshPreview = () => {
+    const raw = String(ta.value ?? "");
+    preview.replaceChildren();
+    if (!raw) return;
+    const plain = document.createElement("div");
+    plain.className = "plain-preview";
+    plain.style.fontFamily = (fontSel ? fontSel.value : (o.fontFamily || DEFAULT_TEXT_FONT)) || DEFAULT_TEXT_FONT;
+    const pt = sizeInp ? Number(sizeInp.value) : mmToPt(o.labelSize || DEFAULT_TEXT_SIZE_MM);
+    plain.style.fontSize = Math.max(10, isFinite(pt) ? pt : mmToPt(DEFAULT_TEXT_SIZE_MM)) + "pt";
+    plain.style.fontStyle = "normal";   // labeler/arc text is upright, never italic
+    fillHtmlWithRomanRuns(plain, raw);
+    preview.appendChild(plain);
+  };
+  ta.addEventListener("input", refreshPreview);
+  if (fontSel) fontSel.addEventListener("change", refreshPreview);
+  if (sizeInp) sizeInp.addEventListener("input", refreshPreview);
+
   const actions = document.createElement("div");
   actions.className = "unified-editor-actions";
   const cancel = document.createElement("button");
@@ -1251,8 +1280,11 @@ function _openSmallTextEditor(objId, { type = "labeler", field = "text", title =
     else if (ke.key === "Enter" && (ke.ctrlKey || ke.metaKey)) { ke.preventDefault(); commit(); }
   });
 
-  if (isLabeler) box.append(titleEl, hint, ta, ctrlRow, charsRow, actions);
-  else box.append(titleEl, hint, ta, actions);
+  // Same separated structure as the text-tool dialog: 미리보기 → 글꼴/크기 → 입력 →
+  // 단축키 힌트 → 버튼. The labeler adds its font/size row + quick-char buttons.
+  if (isLabeler) box.append(titleEl, previewLabel, preview, ctrlRow, ta, hint, charsRow, actions);
+  else box.append(titleEl, previewLabel, preview, ta, hint, actions);
+  refreshPreview();
   wrap.appendChild(box);
   const left = Math.max(0, Math.round((wrap.clientWidth - box.offsetWidth) / 2));
   const top = Math.max(0, Math.round((wrap.clientHeight - box.offsetHeight) / 2));
