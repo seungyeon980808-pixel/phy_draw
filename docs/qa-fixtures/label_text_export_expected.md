@@ -31,15 +31,18 @@
 | `fx_anglearc_custom` | anglearc | α | quantity → Times italic | 호 + α, 시작각 20°, 벌림 70° |
 | `fx_line_label` | line | ℓ | quantity → Times italic | 수평선 위 일정 간격으로 ℓ |
 | `fx_rect_objectlabel` | rect | 물체 A | label → 명조 normal | 사각형 위(above)에 라벨 |
-| `fx_rect_rotated_quantity` | rect | F | quantity → Times italic | 25° 회전 사각형, 글자 F는 upright |
+| `fx_rect_rotated_quantity` | rect | F | **사각형 라벨은 항상 명조 normal 강제** (labelType=quantity여도 이탤릭 아님) | 25° 회전 사각형, 글자 F는 upright·명조 normal |
 | `fx_ellipse_label` | ellipse | 도르래 | label → 명조 normal | 외곽선 타원(채움 없음), 아래(below)에 라벨 |
 
 ## 글꼴 정책 핵심 (체크리스트 C와 대응)
 
 - **일반 텍스트·라벨러** → 돋움 계열 **normal**.
 - **물리량/수식 (`labelType: "quantity"`, 각도호, 선 라벨, v=at)** → **Times New Roman italic**.
-- **오브젝트 일반 라벨 (`labelType: "label"`, 물체 A·도르래·물체명)** → **신명중명조/명조 normal** (구현 시).
-- 세 정책이 한 화면에서 서로 다른 글꼴로 분기되어야 하며, export(PNG/SVG)에서도 동일해야 한다.
+- **오브젝트 일반 라벨 (`labelType: "label"`, 물체 A·도르래·물체명)** → **신명중명조/명조 normal**.
+- **사각형(rect) 내부 라벨 (A·B·C·F …)** → labelType과 무관하게 **항상 신명중명조 명조 normal**로 강제.
+  A·B·C가 서로 다른 스타일(이탤릭 등)로 갈리지 않도록 font-style을 normal로 명시한다.
+- **로마 숫자 (I·II·III, Ⅰ·Ⅱ·Ⅲ)** → 어떤 글꼴 맥락이든 **세리프(명조) 정체 런**으로 렌더(예: "마찰 구간 I").
+- 위 정책이 한 화면에서 서로 다른 글꼴로 분기되어야 하며, export(PNG/SVG)에서도 동일해야 한다.
 
 ## 선택영역 export 추천 영역
 

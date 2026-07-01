@@ -7,7 +7,7 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.36.2";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.36.3";
 import {
   DEFAULT_TEXT_FONT,
   DEFAULT_TEXT_SIZE_MM,
@@ -19,11 +19,13 @@ import {
   OBJECT_LABEL_TYPES,
   OBJECT_LABEL_QUANTITY_FONT_FAMILY,
   OBJECT_LABEL_TEXT_FONT_FAMILY,
+  ROMAN_NUMERAL_FONT_FAMILY,
+  splitRomanRuns,
   resolveTextFontStyle,
   resolveTextLetterSpacing,
-} from "./state.js?v=0.36.2";
-import { resolveObjectStyle } from "./style-mode.js?v=0.36.2";
-import { renderFormula } from "./formula.js?v=0.36.2";
+} from "./state.js?v=0.36.3";
+import { resolveObjectStyle } from "./style-mode.js?v=0.36.3";
+import { renderFormula } from "./formula.js?v=0.36.3";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -728,14 +730,14 @@ function makeUprightLabel(text, x, y, color, sizeMm = DEFAULT_TEXT_SIZE_MM, opti
   t.setAttribute("stroke-linejoin", "round");
   const lines = s.split("\n");
   if (lines.length === 1) {
-    t.textContent = lines[0];
+    fillTextWithRomanRuns(t, lines[0]);
   } else {
     const lineHeight = sizeMm * 1.2;
     lines.forEach((line, i) => {
       const ts = document.createElementNS(SVG_NS, "tspan");
       ts.setAttribute("x", x);
       ts.setAttribute("dy", i === 0 ? -lineHeight * (lines.length - 1) / 2 : lineHeight);
-      ts.textContent = line || "\u00a0";
+      fillTextWithRomanRuns(ts, line || "\u00a0");
       t.appendChild(ts);
     });
   }
@@ -766,7 +768,14 @@ function withBoxLabel(shapeEl, obj) {
   // turns. The text node itself is appended OUTSIDE the rotation group, so the
   // glyph stays upright.
   const anchor = rotPt(cx + lx, cy + ly, cx, cy, obj.rotation || 0);
-  const lbl = makeUprightLabel(obj.label, anchor.x, anchor.y, grayHex(obj.strokeLevel), size, { labelType: obj.labelType });
+  // Rectangle internal labels (A, B, C …) are object NAMES, not physics variables:
+  // force the 라벨(신명중명조 정체) policy so every rectangle label shares one regular,
+  // upright style and NEVER inherits the 물리량 italic. `italic:false` also pins the
+  // font-style fallback to normal. Ellipse keeps its per-object labelType choice.
+  const labelOpts = obj.type === "rect"
+    ? { labelType: "label", italic: false }
+    : { labelType: obj.labelType };
+  const lbl = makeUprightLabel(obj.label, anchor.x, anchor.y, grayHex(obj.strokeLevel), size, labelOpts);
   if (!lbl) return shapeEl;
   const g = document.createElementNS(SVG_NS, "g");
   if (obj.id) { g.dataset.id = obj.id; delete shapeEl.dataset.id; }
@@ -896,6 +905,34 @@ function applySvgTextFont(t, { family, style = "normal", weight = null, letterSp
   if (weight) t.setAttribute("font-weight", weight);
   if (letterSpacing != null) t.setAttribute("letter-spacing", letterSpacing);
   else t.removeAttribute("letter-spacing");
+}
+
+/* ----- roman-numeral serif runs -----
+ * Fill a <text>/<tspan> with `str`, wrapping any roman-numeral run (ASCII I·II·III
+ * or Unicode Ⅰ·Ⅱ·Ⅲ) in a child <tspan> forced to the serif/Myeongjo stack, upright
+ * (font-style normal). Non-roman runs stay in the parent's font. This is the single
+ * place canvas + SVG + PNG export all flow through (export reuses renderObject),
+ * so serifed roman numerals stay identical across every surface. */
+function fillTextWithRomanRuns(parent, str) {
+  const s = String(str ?? "");
+  const runs = splitRomanRuns(s);
+  // Fast path: no roman numerals → plain text node (unchanged behavior).
+  if (!runs.some((r) => r.roman)) {
+    parent.textContent = s;
+    return;
+  }
+  for (const run of runs) {
+    if (run.roman) {
+      const ts = document.createElementNS(SVG_NS, "tspan");
+      ts.setAttribute("font-family", ROMAN_NUMERAL_FONT_FAMILY);
+      ts.setAttribute("font-style", "normal");   // Myeongjo serif is upright, never italic
+      ts.setAttribute("letter-spacing", "normal"); // don't inherit equation tracking
+      ts.textContent = run.text;
+      parent.appendChild(ts);
+    } else {
+      parent.appendChild(document.createTextNode(run.text));
+    }
+  }
 }
 
 function resolveLabelType(labelType, fallback = "quantity") {
@@ -1099,7 +1136,7 @@ function renderLine(obj) {
     label.setAttribute("stroke", "white");
     label.setAttribute("stroke-width", Math.max(0.8, sw * 3));
     label.setAttribute("stroke-linejoin", "round");
-    label.textContent = obj.dimensionLabel || "d";
+    fillTextWithRomanRuns(label, obj.dimensionLabel || "d");
     g.appendChild(label);
   }
 
@@ -1415,13 +1452,13 @@ function renderText(obj) {
 
   const lines = (obj.text || "").split("\n");
   if (lines.length === 1) {
-    el.textContent = lines[0];
+    fillTextWithRomanRuns(el, lines[0]);
   } else {
     lines.forEach((line, i) => {
       const ts = document.createElementNS(SVG_NS, "tspan");
       ts.setAttribute("x", obj.x);
       ts.setAttribute("dy", i === 0 ? "0" : obj.fontSize * 1.4);
-      ts.textContent = line || "혻"; // non-breaking space keeps empty lines tall
+      fillTextWithRomanRuns(ts, line || "혻"); // non-breaking space keeps empty lines tall
       el.appendChild(ts);
     });
   }
@@ -1536,7 +1573,7 @@ function renderAxes(obj) {
     t.setAttribute("fill", color);
     t.setAttribute("text-anchor", anchor);
     t.setAttribute("dominant-baseline", baseline);
-    t.textContent = text;
+    fillTextWithRomanRuns(t, text);
     g.appendChild(t);
   };
   addLabel(obj.labelX, right, cy + labelSize * 0.9, "end", "hanging");  // below +X tip
@@ -1611,7 +1648,7 @@ function renderAngleArc(obj) {
     t.setAttribute("fill", color);
     t.setAttribute("text-anchor", "middle");
     t.setAttribute("dominant-baseline", "middle");
-    t.textContent = obj.label;
+    fillTextWithRomanRuns(t, obj.label);
     g.appendChild(t);
   }
 
@@ -2043,7 +2080,7 @@ function cText(g, x, y, text, size, color, fontFamily = null, fontStyle = null, 
   t.setAttribute("fill", color);
   t.setAttribute("text-anchor", "middle");
   t.setAttribute("dominant-baseline", "central");
-  t.textContent = text;
+  fillTextWithRomanRuns(t, text);
   g.appendChild(t);
 }
 // Circle body + short connectors from circle edge to the lead ends (ac/unknown/lamp/meters).
@@ -2247,7 +2284,7 @@ function renderCircuit(obj) {
     t.setAttribute("fill", color);
     t.setAttribute("text-anchor", "middle");
     t.setAttribute("dominant-baseline", "middle");
-    t.textContent = obj.label;
+    fillTextWithRomanRuns(t, obj.label);
     g.appendChild(t);
   }
 

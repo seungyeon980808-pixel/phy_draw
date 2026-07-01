@@ -11,19 +11,19 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.36.2";
+import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.36.3";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt, MIN_TEXT_PT,
-  EQUATION_FONT_FAMILY,
+  EQUATION_FONT_FAMILY, ROMAN_NUMERAL_FONT_FAMILY, splitRomanRuns,
   isEquationFontFamily, resolveTextFontStyle, resolveTextLetterSpacing,
-} from "./state.js?v=0.36.2";
+} from "./state.js?v=0.36.3";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.36.2";
-import { resolveEndpointSnap } from "./snap.js?v=0.36.2";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.36.2";
-import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.36.2";
+import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.36.3";
+import { resolveEndpointSnap } from "./snap.js?v=0.36.3";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.36.3";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.36.3";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -2185,6 +2185,27 @@ function _syncUnifiedStyleControls() {
   if (_textBoldInput) _textBoldInput.setAttribute("aria-pressed", (dt.fontWeight || "normal") === "bold" ? "true" : "false");
 }
 
+/* Fill an HTML element with `str`, wrapping roman-numeral runs (I·II·III / Ⅰ·Ⅱ·Ⅲ)
+ * in a serif/Myeongjo <span>, upright and without equation tracking. HTML twin of
+ * render.js fillTextWithRomanRuns so the editor preview matches the canvas. */
+function fillHtmlWithRomanRuns(el, str) {
+  const s = String(str ?? "");
+  const runs = splitRomanRuns(s);
+  if (!runs.some((r) => r.roman)) { el.textContent = s; return; }
+  for (const run of runs) {
+    if (run.roman) {
+      const span = document.createElement("span");
+      span.style.fontFamily = ROMAN_NUMERAL_FONT_FAMILY;
+      span.style.fontStyle = "normal";
+      span.style.letterSpacing = "normal";
+      span.textContent = run.text;
+      el.appendChild(span);
+    } else {
+      el.appendChild(document.createTextNode(run.text));
+    }
+  }
+}
+
 function _refreshUnifiedPreview() {
   if (!_textPreview) return;
   const raw = _textValue();
@@ -2199,7 +2220,9 @@ function _refreshUnifiedPreview() {
     plain.style.fontStyle = resolveTextFontStyle(dt);
     plain.style.fontWeight = dt.fontWeight || "normal";
     plain.style.letterSpacing = resolveTextLetterSpacing(dt) || "";
-    plain.textContent = raw;
+    // Mirror the canvas: roman numerals get the serif/Myeongjo run, upright, so the
+    // live preview matches the committed SVG exactly (same splitRomanRuns source).
+    fillHtmlWithRomanRuns(plain, raw);
     _textPreview.appendChild(plain);
     return;
   }
@@ -2289,13 +2312,23 @@ function _openUnifiedTextEditor(draft, clientX, clientY, prefill) {
 
   const row = document.createElement("div");
   row.className = "unified-editor-row";
-  _textEditor = document.createElement("input");
-  _textEditor.type = "text";
+  // A <textarea> (not <input>) so plain Enter inserts a real newline and multi-line
+  // text round-trips into obj.text. Mirrors the labeler's small editor: Enter =
+  // 줄바꿈, Ctrl/⌘+Enter = 확인. wrap="off" so only real \n break lines (SVG text
+  // never soft-wraps, so the editor must not show breaks that aren't in the string).
+  _textEditor = document.createElement("textarea");
   _textEditor.className = "unified-text-input text-formula-source-input";
   _textEditor.spellcheck = false;
+  _textEditor.wrap = "off";
   _textEditor.setAttribute("autocomplete", "off");
   _textEditor.value = draft.contentMode === "formula" ? (draft.source || draft.text || "") : (draft.text || prefill || "");
+  _textEditor.rows = Math.max(1, _textEditor.value.split("\n").length);
   row.append(_textEditor);
+
+  // Discoverability: state the commit/newline keys (same wording as the labeler).
+  const hint = document.createElement("div");
+  hint.className = "unified-editor-hint";
+  hint.textContent = "Enter 줄바꿈 · Ctrl+Enter 확인";
 
   _textFormulaPanel = _buildUnifiedFormulaPanel();
 
@@ -2309,18 +2342,24 @@ function _openUnifiedTextEditor(draft, clientX, clientY, prefill) {
   ok.addEventListener("click", () => _commitText());
   actions.append(cancel, ok);
 
-  _textBox.append(title, previewLabel, _textPreview, styleControls, row, _textFormulaPanel, actions);
+  _textBox.append(title, previewLabel, _textPreview, styleControls, row, hint, _textFormulaPanel, actions);
   wrap.appendChild(_textBox);
   _centerUnifiedEditor(wrap);
   _syncUnifiedStyleControls();
   _syncEditorFont();
   _textEditor.focus();
   _textEditor.setSelectionRange(_textEditor.value.length, _textEditor.value.length);
-  _textEditor.addEventListener("input", _syncDraftFromUnifiedEditor);
+  _textEditor.addEventListener("input", () => {
+    // Grow the box to the line count so multi-line drafts stay fully visible.
+    _textEditor.rows = Math.max(1, _textEditor.value.split("\n").length);
+    _syncDraftFromUnifiedEditor();
+  });
   _textEditor.addEventListener("keydown", (ke) => {
     ke.stopPropagation();
     if (ke.key === "Escape") { ke.preventDefault(); _textCancelled = true; _cancelText(); }
-    else if (ke.key === "Enter") { ke.preventDefault(); _commitText(); }
+    // Ctrl/⌘+Enter commits; plain Enter falls through to the textarea's native
+    // newline (multiline). This matches the labeler editor so behavior is uniform.
+    else if (ke.key === "Enter" && (ke.ctrlKey || ke.metaKey)) { ke.preventDefault(); _commitText(); }
   });
   _syncDraftFromUnifiedEditor();
 }

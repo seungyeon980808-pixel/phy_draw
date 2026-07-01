@@ -18,7 +18,7 @@
 // Both formats share buildExportSvg(); the dialog (export-dialog.js) decides
 // filename, format, and resolution and calls exportSvg() / exportPng().
 
-import { renderObject, makeFillPattern } from "./render.js?v=0.36.2";
+import { renderObject, makeFillPattern } from "./render.js?v=0.36.3";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const MM_PER_INCH = 25.4;
