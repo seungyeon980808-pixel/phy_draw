@@ -949,6 +949,12 @@ textarea.unified-text-input {
   font-size: 15px;
   line-height: 1.4;
 }
+.roman-numeral-run {
+  font-family: "Times New Roman", "Batang", "바탕", "Nanum Myeongjo", serif !important;
+  font-style: normal !important;
+  font-weight: normal !important;
+  letter-spacing: normal !important;
+}
 .formula-preview-svg {
   display: block;
   width: auto;

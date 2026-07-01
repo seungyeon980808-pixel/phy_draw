@@ -11,19 +11,19 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.36.3";
+import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.36.4";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt, MIN_TEXT_PT,
   EQUATION_FONT_FAMILY, ROMAN_NUMERAL_FONT_FAMILY, splitRomanRuns,
   isEquationFontFamily, resolveTextFontStyle, resolveTextLetterSpacing,
-} from "./state.js?v=0.36.3";
+} from "./state.js?v=0.36.4";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.36.3";
-import { resolveEndpointSnap } from "./snap.js?v=0.36.3";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.36.3";
-import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.36.3";
+import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.36.4";
+import { resolveEndpointSnap } from "./snap.js?v=0.36.4";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.36.4";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.36.4";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -2185,8 +2185,8 @@ function _syncUnifiedStyleControls() {
   if (_textBoldInput) _textBoldInput.setAttribute("aria-pressed", (dt.fontWeight || "normal") === "bold" ? "true" : "false");
 }
 
-/* Fill an HTML element with `str`, wrapping roman-numeral runs (I·II·III / Ⅰ·Ⅱ·Ⅲ)
- * in a serif/Myeongjo <span>, upright and without equation tracking. HTML twin of
+/* Fill an HTML element with `str`, wrapping ASCII I/II/III roman-numeral runs
+ * in a Latin serif <span>, upright and without equation tracking. HTML twin of
  * render.js fillTextWithRomanRuns so the editor preview matches the canvas. */
 function fillHtmlWithRomanRuns(el, str) {
   const s = String(str ?? "");
@@ -2195,9 +2195,11 @@ function fillHtmlWithRomanRuns(el, str) {
   for (const run of runs) {
     if (run.roman) {
       const span = document.createElement("span");
-      span.style.fontFamily = ROMAN_NUMERAL_FONT_FAMILY;
-      span.style.fontStyle = "normal";
-      span.style.letterSpacing = "normal";
+      span.className = "roman-numeral-run";
+      span.style.setProperty("font-family", ROMAN_NUMERAL_FONT_FAMILY, "important");
+      span.style.setProperty("font-style", "normal", "important");
+      span.style.setProperty("font-weight", "normal", "important");
+      span.style.setProperty("letter-spacing", "normal", "important");
       span.textContent = run.text;
       el.appendChild(span);
     } else {
