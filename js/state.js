@@ -22,20 +22,13 @@ export const OBJECT_LABEL_QUANTITY_FONT_FAMILY = '"Times New Roman", "Cambria Ma
 // 일반 텍스트 도구(돋움)와도 분리 — 객체 라벨 "라벨" 종류 전용.
 export const OBJECT_LABEL_TEXT_FONT_FAMILY = '"신명중명조", "Shin Myeongjo", "SMMyungJo", "Batang", "바탕", serif';
 
-// 로마 숫자(ASCII I·II·III … 와 유니코드 Ⅰ·Ⅱ·Ⅲ …)는 세리프(명조) 글리프로
-// 렌더한다. 신명중명조가 있으면 우선 사용하고, 없으면 바탕→generic serif로 폴백해
-// 어떤 환경에서도 세리프(장식 획) 글리프가 보장된다. 라벨용 정체 글꼴과 같은 체인.
+// ASCII I/II/III roman-numeral labels render with the same serif run used by
+// labeler text. Scope is deliberately narrow: no Unicode roman numerals and no
+// arbitrary uppercase words.
 export const ROMAN_NUMERAL_FONT_FAMILY = OBJECT_LABEL_TEXT_FONT_FAMILY;
 
-// 대문자 ASCII 로마 숫자 형식 검증(빈 문자열 제외). "MIX"처럼 우연히 유효한 라틴
-// 단어가 드물게 걸릴 수 있으나 실사용(로마 숫자 표기)에선 허용 범위로 둔다.
-const ROMAN_ASCII_RE = /^M{0,4}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$/;
-
 function isRomanToken(tok) {
-  // 유니코드 로마 숫자 코드포인트(Ⅰ..ↈ)는 그 자체로 로마 숫자.
-  if (/^[Ⅰ-ↈ]+$/.test(tok)) return true;
-  // 대문자 로마 문자로만 이뤄지고 로마 숫자 형식을 만족하는 라틴 단어.
-  return /^[MDCLXVI]+$/.test(tok) && ROMAN_ASCII_RE.test(tok);
+  return /^(?:I|II|III)$/.test(tok);
 }
 
 // 텍스트를 "로마 숫자 런"과 "일반 런"으로 쪼갠다. 로마 숫자 토큰 후보는
@@ -51,7 +44,7 @@ export function splitRomanRuns(text) {
     if (prev && prev.roman === roman) prev.text += str;
     else runs.push({ text: str, roman });
   };
-  const re = /[Ⅰ-ↈ]+|[A-Za-z]+/g;
+  const re = /[A-Za-z]+/g;
   let last = 0, m;
   while ((m = re.exec(s))) {
     if (m.index > last) push(s.slice(last, m.index), false);

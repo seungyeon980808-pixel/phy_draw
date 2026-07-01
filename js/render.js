@@ -19,13 +19,12 @@ import {
   OBJECT_LABEL_TYPES,
   OBJECT_LABEL_QUANTITY_FONT_FAMILY,
   OBJECT_LABEL_TEXT_FONT_FAMILY,
-  ROMAN_NUMERAL_FONT_FAMILY,
-  splitRomanRuns,
   resolveTextFontStyle,
   resolveTextLetterSpacing,
 } from "./state.js?v=0.36.4";
 import { resolveObjectStyle } from "./style-mode.js?v=0.36.4";
 import { renderFormula } from "./formula.js?v=0.36.4";
+import { fillSvgTextWithRomanRuns } from "./text-rendering.js?v=0.36.4";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -908,32 +907,10 @@ function applySvgTextFont(t, { family, style = "normal", weight = null, letterSp
 }
 
 /* ----- roman-numeral serif runs -----
- * Fill a <text>/<tspan> with `str`, wrapping any roman-numeral run (ASCII I·II·III
- * or Unicode Ⅰ·Ⅱ·Ⅲ) in a child <tspan> forced to the serif/Myeongjo stack, upright
- * (font-style normal). Non-roman runs stay in the parent's font. This is the single
- * place canvas + SVG + PNG export all flow through (export reuses renderObject),
- * so serifed roman numerals stay identical across every surface. */
-function fillTextWithRomanRuns(parent, str) {
-  const s = String(str ?? "");
-  const runs = splitRomanRuns(s);
-  // Fast path: no roman numerals → plain text node (unchanged behavior).
-  if (!runs.some((r) => r.roman)) {
-    parent.textContent = s;
-    return;
-  }
-  for (const run of runs) {
-    if (run.roman) {
-      const ts = document.createElementNS(SVG_NS, "tspan");
-      ts.setAttribute("font-family", ROMAN_NUMERAL_FONT_FAMILY);
-      ts.setAttribute("font-style", "normal");   // Myeongjo serif is upright, never italic
-      ts.setAttribute("letter-spacing", "normal"); // don't inherit equation tracking
-      ts.textContent = run.text;
-      parent.appendChild(ts);
-    } else {
-      parent.appendChild(document.createTextNode(run.text));
-    }
-  }
-}
+ * Fill a <text>/<tspan> with `str`, wrapping standalone ASCII I/II/III runs in
+ * the same serif/Myeongjo child <tspan> used by labeler text. Non-roman runs stay
+ * in the parent's font. Export reuses renderObject, so SVG/PNG follow this path. */
+const fillTextWithRomanRuns = fillSvgTextWithRomanRuns;
 
 function resolveLabelType(labelType, fallback = "quantity") {
   return OBJECT_LABEL_TYPES.includes(labelType) ? labelType : fallback;

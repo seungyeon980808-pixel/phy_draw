@@ -15,7 +15,7 @@ import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt, MIN_TEXT_PT,
-  EQUATION_FONT_FAMILY, ROMAN_NUMERAL_FONT_FAMILY, splitRomanRuns,
+  EQUATION_FONT_FAMILY,
   isEquationFontFamily, resolveTextFontStyle, resolveTextLetterSpacing,
 } from "./state.js?v=0.36.4";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
@@ -24,6 +24,7 @@ import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.36.4";
 import { resolveEndpointSnap } from "./snap.js?v=0.36.4";
 import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.36.4";
 import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.36.4";
+import { fillHtmlTextWithRomanRuns } from "./text-rendering.js?v=0.36.4";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -2217,26 +2218,9 @@ function _syncUnifiedStyleControls() {
   if (_textBoldInput) _textBoldInput.setAttribute("aria-pressed", (dt.fontWeight || "normal") === "bold" ? "true" : "false");
 }
 
-/* Fill an HTML element with `str`, wrapping roman-numeral runs (I·II·III / Ⅰ·Ⅱ·Ⅲ)
- * in a serif/Myeongjo <span>, upright and without equation tracking. HTML twin of
- * render.js fillTextWithRomanRuns so the editor preview matches the canvas. */
-function fillHtmlWithRomanRuns(el, str) {
-  const s = String(str ?? "");
-  const runs = splitRomanRuns(s);
-  if (!runs.some((r) => r.roman)) { el.textContent = s; return; }
-  for (const run of runs) {
-    if (run.roman) {
-      const span = document.createElement("span");
-      span.style.fontFamily = ROMAN_NUMERAL_FONT_FAMILY;
-      span.style.fontStyle = "normal";
-      span.style.letterSpacing = "normal";
-      span.textContent = run.text;
-      el.appendChild(span);
-    } else {
-      el.appendChild(document.createTextNode(run.text));
-    }
-  }
-}
+/* Fill an HTML element with `str`, wrapping standalone ASCII I/II/III runs in the
+ * same serif/Myeongjo style that labeler canvas text uses. */
+const fillHtmlWithRomanRuns = fillHtmlTextWithRomanRuns;
 
 function _refreshUnifiedPreview() {
   if (!_textPreview) return;
