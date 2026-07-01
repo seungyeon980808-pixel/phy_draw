@@ -10,10 +10,10 @@
 // which snapshots only `objects` and rebuilds groups). groupId is the single
 // source of truth, so we rebuild groups on load via that same helper.
 
-import { rebuildGroups } from "./transform.js?v=0.36.4";
-import { screenToWorld } from "./viewport.js?v=0.36.4";
-import { applyNewObjectStyleDefaults, migrateObjectStyleMode } from "./style-mode.js?v=0.36.4";
-import { DEFAULT_TEXT_SIZE_MM, DEFAULT_TEXT_FONT } from "./state.js?v=0.36.4";
+import { rebuildGroups } from "./transform.js?v=0.36.5";
+import { screenToWorld } from "./viewport.js?v=0.36.5";
+import { applyNewObjectStyleDefaults, migrateObjectStyleMode } from "./style-mode.js?v=0.36.5";
+import { DEFAULT_TEXT_SIZE_MM, DEFAULT_TEXT_FONT, normalizeTextRuns, textRunsToText } from "./state.js?v=0.36.5";
 
 // Schema version of the saved file. Distinct from the app UI version.
 // 0.15 adds editing guides; older files without them load with an empty guide list.
@@ -57,6 +57,10 @@ function migrate(data) {
       migrateObjectStyleMode(next);
       if (next.type === "text") {
         next.italic = next.italic ?? false;
+        if (Array.isArray(next.textRuns) && next.textRuns.length) {
+          next.textRuns = normalizeTextRuns(next);
+          next.text = next.text ?? textRunsToText(next.textRuns);
+        }
       }
       if (next.type === "formula") {
         next.italic = next.italic ?? false;

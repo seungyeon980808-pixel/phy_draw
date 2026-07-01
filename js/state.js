@@ -7,7 +7,7 @@
 // `viewBox` mirrors the SVG viewBox and is the ONLY coordinate authority
 // (DESIGN 1-2). Zoom/pan mutate this, never a CSS transform.
 
-import { createStore } from "./store.js?v=0.36.4";
+import { createStore } from "./store.js?v=0.36.5";
 
 export const TEXT_FONT_FAMILY = '"돋움", "Dotum", "Apple SD Gothic Neo", "맑은 고딕", "Malgun Gothic", sans-serif';
 export const EQUATION_FONT_FAMILY = '"HYhwpEQ", "HWhwpEQ", "Cambria Math", "Times New Roman", "Batang", "바탕", serif';
@@ -75,12 +75,74 @@ export function isEquationFontFamily(value) {
 }
 
 export function resolveTextFontStyle(obj = {}) {
+  if (typeof obj.italic === "boolean") return obj.italic ? "italic" : "normal";
   if (isEquationFontFamily(obj.fontFamily)) return EQUATION_FONT_STYLE;
   return obj.italic === true || obj.fontStyle === "italic" ? "italic" : "normal";
 }
 
 export function resolveTextLetterSpacing(obj = {}) {
   return isEquationFontFamily(obj.fontFamily) ? EQUATION_LETTER_SPACING : null;
+}
+
+export function textRunStyleFromObject(obj = {}) {
+  const italic = typeof obj.italic === "boolean"
+    ? obj.italic
+    : obj.fontStyle === "italic" || isEquationFontFamily(obj.fontFamily);
+  return {
+    fontFamily: obj.fontFamily || DEFAULT_TEXT_FONT,
+    fontSize: obj.fontSize || DEFAULT_TEXT_SIZE_MM,
+    fontWeight: obj.fontWeight || "normal",
+    italic,
+    underline: !!obj.underline,
+    strikeout: !!obj.strikeout,
+  };
+}
+
+export function normalizeTextRunStyle(style = {}, fallback = {}) {
+  const base = textRunStyleFromObject(fallback);
+  const italic = typeof style.italic === "boolean"
+    ? style.italic
+    : style.fontStyle === "italic" || base.italic;
+  return {
+    fontFamily: style.fontFamily || base.fontFamily,
+    fontSize: Number.isFinite(style.fontSize) ? style.fontSize : base.fontSize,
+    fontWeight: style.fontWeight || (style.bold ? "bold" : base.fontWeight),
+    italic,
+    underline: typeof style.underline === "boolean" ? style.underline : base.underline,
+    strikeout: typeof style.strikeout === "boolean" ? style.strikeout : base.strikeout,
+  };
+}
+
+function sameTextRunStyle(a = {}, b = {}) {
+  return a.fontFamily === b.fontFamily &&
+    a.fontSize === b.fontSize &&
+    a.fontWeight === b.fontWeight &&
+    a.italic === b.italic &&
+    a.underline === b.underline &&
+    a.strikeout === b.strikeout;
+}
+
+export function normalizeTextRuns(obj = {}) {
+  const sourceRuns = Array.isArray(obj.textRuns) && obj.textRuns.length
+    ? obj.textRuns
+    : [{ text: obj.text ?? "", style: textRunStyleFromObject(obj) }];
+  const out = [];
+  for (const run of sourceRuns) {
+    const text = String(run?.text ?? "");
+    if (!text) continue;
+    const style = normalizeTextRunStyle(run?.style || {}, obj);
+    const prev = out[out.length - 1];
+    if (prev && sameTextRunStyle(prev.style, style)) prev.text += text;
+    else out.push({ text, style });
+  }
+  if (!out.length && (obj.text ?? "") !== "") {
+    out.push({ text: String(obj.text ?? ""), style: textRunStyleFromObject(obj) });
+  }
+  return out;
+}
+
+export function textRunsToText(runs = []) {
+  return Array.isArray(runs) ? runs.map((run) => String(run?.text ?? "")).join("") : "";
 }
 
 /* ===== TEXT FONT OPTIONS (single source for inspector + font modal) =====

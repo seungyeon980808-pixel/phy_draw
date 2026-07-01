@@ -11,7 +11,7 @@
 // Design ref: docs/IMAGE_TO_OBJECT_API_DESIGN_20260630.md (roadmap Phase 1).
 // Fixtures:   docs/qa-fixtures/image_to_object_mock_v1.json (+ _expected.md).
 
-import { DEFAULT_TEXT_SIZE_MM, DEFAULT_TEXT_FONT } from "./state.js?v=0.36.4";
+import { DEFAULT_TEXT_SIZE_MM, DEFAULT_TEXT_FONT } from "./state.js?v=0.36.5";
 
 const SCHEMA_VERSION = "image-to-object-v1";
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm), mirrors tools.js

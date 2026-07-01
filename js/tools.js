@@ -11,19 +11,20 @@
 // screenToWorld BEFORE being stored, so shapes are anchored in world space and
 // survive zoom/pan unchanged (DESIGN 1-2).
 
-import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.36.4";
+import { screenToWorld, getRenderScale, worldToScreen } from "./viewport.js?v=0.36.5";
 import {
   TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_PX, DEFAULT_TEXT_SIZE_MM,
   TEXT_STYLES, TEXT_SIZE_PRESETS, ptToMm, mmToPt, MIN_TEXT_PT,
   EQUATION_FONT_FAMILY, ROMAN_NUMERAL_FONT_FAMILY, splitRomanRuns,
-  isEquationFontFamily, resolveTextFontStyle, resolveTextLetterSpacing,
-} from "./state.js?v=0.36.4";
+  resolveTextFontStyle, resolveTextLetterSpacing,
+  normalizeTextRuns, normalizeTextRunStyle, textRunStyleFromObject, textRunsToText,
+} from "./state.js?v=0.36.5";
 // Single-source circuit body geometry: hit-testing reuses the SAME polygon the
 // renderer draws, so the clickable box and the visible box can never diverge.
-import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.36.4";
-import { resolveEndpointSnap } from "./snap.js?v=0.36.4";
-import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.36.4";
-import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.36.4";
+import { circuitBodyPolygon, setSnapPreview } from "./render.js?v=0.36.5";
+import { resolveEndpointSnap } from "./snap.js?v=0.36.5";
+import { applyNewObjectStyleDefaults } from "./style-mode.js?v=0.36.5";
+import { measureFormula, renderFormula, fontOf } from "./formula.js?v=0.36.5";
 
 // Default look until the inspector exists (DESIGN 짠3-2: border only, hollow).
 const DEFAULT_STROKE_WIDTH = 0.2; // world units (mm)
@@ -1930,6 +1931,7 @@ function startEditingTextObject(objId, clickPt = null) {
     fontWeight: o.fontWeight || "normal",
     fontStyle: o.italic === true ? "italic" : "normal",
     italic: o.italic === true,
+    textRuns: normalizeTextRuns(o),
     underline: !!o.underline, strikeout: !!o.strikeout,
     rotation: o.rotation ?? 0,
     editingId: o.id,
@@ -2037,6 +2039,86 @@ function _textValue() {
   return _textEditor ? _textEditor.value : "";
 }
 
+function _currentUnifiedStyle() {
+  return {
+    fontFamily: _textFontSelect?.value || DEFAULT_TEXT_FONT,
+    fontSize: ptToMm(Math.max(MIN_TEXT_PT, parseFloat(_textSizeInput?.value) || mmToPt(DEFAULT_TEXT_SIZE_MM))),
+    fontWeight: _textBoldInput?.getAttribute("aria-pressed") === "true" ? "bold" : "normal",
+    italic: _textItalicInput?.getAttribute("aria-pressed") === "true",
+    underline: false,
+    strikeout: false,
+  };
+}
+
+function _mergeTextRuns(runs, fallback) {
+  return normalizeTextRuns({ ...fallback, textRuns: runs });
+}
+
+function _applyStyleToRuns(runs, start, end, patch, fallback) {
+  const normalized = normalizeTextRuns({ ...fallback, textRuns: runs });
+  const styled = [];
+  let pos = 0;
+  for (const run of normalized) {
+    const text = String(run.text ?? "");
+    const next = pos + text.length;
+    const before = Math.max(0, Math.min(text.length, start - pos));
+    const after = Math.max(0, Math.min(text.length, end - pos));
+    if (before > 0) styled.push({ text: text.slice(0, before), style: run.style });
+    if (after > before) {
+      styled.push({
+        text: text.slice(before, after),
+        style: normalizeTextRunStyle({ ...run.style, ...patch }, fallback),
+      });
+    }
+    if (after < text.length) styled.push({ text: text.slice(after), style: run.style });
+    pos = next;
+  }
+  return _mergeTextRuns(styled, fallback);
+}
+
+function _syncDraftRunsToText(draft, raw) {
+  if (!draft) return;
+  const current = textRunsToText(draft.textRuns || []);
+  if (current === raw) return;
+  draft.textRuns = raw ? [{ text: raw, style: textRunStyleFromObject(draft) }] : [];
+}
+
+function _setDraftWholeTextStyle(draft, style) {
+  Object.assign(draft, {
+    fontFamily: style.fontFamily,
+    fontSize: style.fontSize,
+    fontWeight: style.fontWeight,
+    fontStyle: style.italic ? "italic" : "normal",
+    italic: style.italic,
+    letterSpacing: resolveTextLetterSpacing(style),
+  });
+  const text = draft.text ?? "";
+  draft.textRuns = text ? [{ text, style: normalizeTextRunStyle(style, draft) }] : [];
+}
+
+function _applyUnifiedStyleToDraft() {
+  const style = _currentUnifiedStyle();
+  _state.update((s) => {
+    const dt = s.draftText;
+    if (!dt) return;
+    const raw = _textValue();
+    dt.text = raw;
+    dt.source = raw;
+    dt.rawSource = raw;
+    dt.contentMode = looksLikeFormula(raw) ? "formula" : "plain";
+    _syncDraftRunsToText(dt, raw);
+    const start = _textEditor?.selectionStart ?? 0;
+    const end = _textEditor?.selectionEnd ?? start;
+    if (end > start) {
+      dt.textRuns = _applyStyleToRuns(dt.textRuns, start, end, style, dt);
+    } else {
+      _setDraftWholeTextStyle(dt, style);
+    }
+  });
+  _syncEditorFont();
+  _refreshUnifiedPreview();
+}
+
 function _syncDraftFromUnifiedEditor() {
   const raw = _textValue();
   _state.update((s) => {
@@ -2045,6 +2127,7 @@ function _syncDraftFromUnifiedEditor() {
     s.draftText.source = raw;
     s.draftText.rawSource = raw;
     s.draftText.contentMode = looksLikeFormula(raw) ? "formula" : "plain";
+    _syncDraftRunsToText(s.draftText, raw);
   });
   _refreshUnifiedPreview();
 }
@@ -2127,22 +2210,7 @@ function _buildUnifiedStyleControls() {
   controls.append(fontLabel, sizeLabel, _textItalicInput, _textBoldInput);
   controls.addEventListener("mousedown", (e) => e.stopPropagation());
 
-  const applyStyle = () => {
-    _state.update((s) => {
-      if (!s.draftText) return;
-      s.draftText.fontFamily = _textFontSelect.value || DEFAULT_TEXT_FONT;
-      if (isEquationFontFamily(s.draftText.fontFamily)) {
-        _textItalicInput.setAttribute("aria-pressed", "true");
-      }
-      s.draftText.fontSize = ptToMm(Math.max(MIN_TEXT_PT, parseFloat(_textSizeInput.value) || mmToPt(DEFAULT_TEXT_SIZE_MM)));
-      s.draftText.italic = _textItalicInput.getAttribute("aria-pressed") === "true";
-      s.draftText.fontStyle = resolveTextFontStyle(s.draftText);
-      s.draftText.fontWeight = _textBoldInput.getAttribute("aria-pressed") === "true" ? "bold" : "normal";
-      s.draftText.letterSpacing = resolveTextLetterSpacing(s.draftText);
-    });
-    _syncEditorFont();
-    _refreshUnifiedPreview();
-  };
+  const applyStyle = () => _applyUnifiedStyleToDraft();
   _textFontSelect.addEventListener("change", applyStyle);
   _textSizeInput.addEventListener("change", applyStyle);
   _textItalicInput.addEventListener("click", () => {
@@ -2181,7 +2249,7 @@ function _syncUnifiedStyleControls() {
     }
     _textSizeInput.value = pt;
   }
-  if (_textItalicInput) _textItalicInput.setAttribute("aria-pressed", (dt.italic === true || isEquationFontFamily(dt.fontFamily)) ? "true" : "false");
+  if (_textItalicInput) _textItalicInput.setAttribute("aria-pressed", dt.italic === true ? "true" : "false");
   if (_textBoldInput) _textBoldInput.setAttribute("aria-pressed", (dt.fontWeight || "normal") === "bold" ? "true" : "false");
 }
 
@@ -2208,6 +2276,25 @@ function fillHtmlWithRomanRuns(el, str) {
   }
 }
 
+function appendHtmlStyledTextRuns(parent, draft) {
+  const runs = normalizeTextRuns(draft);
+  runs.forEach((run) => {
+    const span = document.createElement("span");
+    const style = normalizeTextRunStyle(run.style || {}, draft);
+    span.style.fontFamily = style.fontFamily || DEFAULT_TEXT_FONT;
+    span.style.fontSize = `${Math.max(10, mmToPt(style.fontSize || draft.fontSize || DEFAULT_TEXT_SIZE_MM))}pt`;
+    span.style.fontStyle = style.italic ? "italic" : "normal";
+    span.style.fontWeight = style.fontWeight || "normal";
+    span.style.letterSpacing = resolveTextLetterSpacing(style) || "";
+    const deco = [];
+    if (style.underline) deco.push("underline");
+    if (style.strikeout) deco.push("line-through");
+    span.style.textDecoration = deco.join(" ") || "none";
+    span.textContent = run.text;
+    parent.appendChild(span);
+  });
+}
+
 function _refreshUnifiedPreview() {
   if (!_textPreview) return;
   const raw = _textValue();
@@ -2222,9 +2309,12 @@ function _refreshUnifiedPreview() {
     plain.style.fontStyle = resolveTextFontStyle(dt);
     plain.style.fontWeight = dt.fontWeight || "normal";
     plain.style.letterSpacing = resolveTextLetterSpacing(dt) || "";
-    // Mirror the canvas: roman numerals get the serif/Myeongjo run, upright, so the
-    // live preview matches the committed SVG exactly (same splitRomanRuns source).
-    fillHtmlWithRomanRuns(plain, raw);
+    if (Array.isArray(dt.textRuns) && dt.textRuns.length) {
+      appendHtmlStyledTextRuns(plain, dt);
+    } else {
+      // Legacy plain text still mirrors the old roman-numeral fallback.
+      fillHtmlWithRomanRuns(plain, raw);
+    }
     _textPreview.appendChild(plain);
     return;
   }
@@ -2567,9 +2657,11 @@ function _commitText() {
           });
           o.w = m.w; o.h = m.h;
           delete o.text;
+          delete o.textRuns;
         } else {
           o.type = "text";
           o.text = val;
+          o.textRuns = normalizeTextRuns(dt);
           delete o.source;
           delete o.rawSource;
           delete o.w;
@@ -2621,6 +2713,7 @@ function _commitText() {
             ...common,
             type: "text",
             text: val,
+            textRuns: normalizeTextRuns(dt),
           };
       s.objects.push(next);
       s.selectedIds = [id];
@@ -3230,10 +3323,20 @@ function _applyFontModal() {
       s.undoStack.push(snap);
       s.redoStack = [];
       Object.assign(o, fields);
+      if (o.type === "text") {
+        o.textRuns = (o.text ?? "") ? [{ text: o.text, style: normalizeTextRunStyle(fields, o) }] : [];
+      }
     });
   } else {
-    _state.update((s) => { if (s.draftText) Object.assign(s.draftText, fields); });
+    _state.update((s) => {
+      if (!s.draftText) return;
+      Object.assign(s.draftText, fields);
+      if (s.draftText.text != null) {
+        s.draftText.textRuns = s.draftText.text ? [{ text: s.draftText.text, style: normalizeTextRunStyle(fields, s.draftText) }] : [];
+      }
+    });
     _syncEditorFont();
+    _refreshUnifiedPreview();
   }
   _closeFontModal();
 }

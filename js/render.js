@@ -7,7 +7,7 @@
 // the projection stays anchored in world space through zoom/pan (the viewBox
 // alone changes what slice of that space is shown).
 
-import { getZoom, getRenderScale } from "./viewport.js?v=0.36.4";
+import { getZoom, getRenderScale } from "./viewport.js?v=0.36.5";
 import {
   DEFAULT_TEXT_FONT,
   DEFAULT_TEXT_SIZE_MM,
@@ -23,9 +23,10 @@ import {
   splitRomanRuns,
   resolveTextFontStyle,
   resolveTextLetterSpacing,
-} from "./state.js?v=0.36.4";
-import { resolveObjectStyle } from "./style-mode.js?v=0.36.4";
-import { renderFormula } from "./formula.js?v=0.36.4";
+  normalizeTextRuns,
+} from "./state.js?v=0.36.5";
+import { resolveObjectStyle } from "./style-mode.js?v=0.36.5";
+import { renderFormula } from "./formula.js?v=0.36.5";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -937,6 +938,53 @@ function fillTextWithRomanRuns(parent, str) {
   }
 }
 
+function applySvgTextRunStyle(t, style = {}) {
+  applySvgTextFont(t, {
+    family: style.fontFamily || DEFAULT_TEXT_FONT,
+    style: style.italic === true ? "italic" : "normal",
+    weight: style.fontWeight || "normal",
+    letterSpacing: resolveTextLetterSpacing(style),
+  });
+  const deco = [];
+  if (style.underline) deco.push("underline");
+  if (style.strikeout) deco.push("line-through");
+  if (deco.length) t.setAttribute("text-decoration", deco.join(" "));
+  else t.removeAttribute("text-decoration");
+}
+
+function textRunLines(runs) {
+  const lines = [[]];
+  for (const run of runs) {
+    const parts = String(run.text ?? "").split("\n");
+    parts.forEach((part, index) => {
+      if (index > 0) lines.push([]);
+      if (part) lines[lines.length - 1].push({ text: part, style: run.style || {} });
+    });
+  }
+  return lines;
+}
+
+function appendStyledTextRuns(parent, obj) {
+  const runs = normalizeTextRuns(obj);
+  const lines = textRunLines(runs);
+  lines.forEach((line, i) => {
+    const lineSpan = document.createElementNS(SVG_NS, "tspan");
+    lineSpan.setAttribute("x", obj.x);
+    lineSpan.setAttribute("dy", i === 0 ? "0" : obj.fontSize * 1.4);
+    if (!line.length) {
+      lineSpan.textContent = "\u00a0";
+    } else {
+      line.forEach((run) => {
+        const span = document.createElementNS(SVG_NS, "tspan");
+        applySvgTextRunStyle(span, run.style);
+        span.textContent = run.text;
+        lineSpan.appendChild(span);
+      });
+    }
+    parent.appendChild(lineSpan);
+  });
+}
+
 function resolveLabelType(labelType, fallback = "quantity") {
   return OBJECT_LABEL_TYPES.includes(labelType) ? labelType : fallback;
 }
@@ -1452,17 +1500,21 @@ function renderText(obj) {
   const rot = obj.rotation ?? 0;
   if (rot) el.setAttribute("transform", `rotate(${rot},${obj.x},${obj.y})`);
 
-  const lines = (obj.text || "").split("\n");
-  if (lines.length === 1) {
-    fillTextWithRomanRuns(el, lines[0]);
+  if (Array.isArray(obj.textRuns) && obj.textRuns.length) {
+    appendStyledTextRuns(el, obj);
   } else {
-    lines.forEach((line, i) => {
-      const ts = document.createElementNS(SVG_NS, "tspan");
-      ts.setAttribute("x", obj.x);
-      ts.setAttribute("dy", i === 0 ? "0" : obj.fontSize * 1.4);
-      fillTextWithRomanRuns(ts, line || "혻"); // non-breaking space keeps empty lines tall
-      el.appendChild(ts);
-    });
+    const lines = (obj.text || "").split("\n");
+    if (lines.length === 1) {
+      fillTextWithRomanRuns(el, lines[0]);
+    } else {
+      lines.forEach((line, i) => {
+        const ts = document.createElementNS(SVG_NS, "tspan");
+        ts.setAttribute("x", obj.x);
+        ts.setAttribute("dy", i === 0 ? "0" : obj.fontSize * 1.4);
+        fillTextWithRomanRuns(ts, line || "\u00a0");
+        el.appendChild(ts);
+      });
+    }
   }
   return el;
 }

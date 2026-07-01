@@ -1,8 +1,8 @@
 /* ===== INSPECTOR (right panel — shows/edits selected object properties) ===== */
 
-import { TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, mmToPt, ptToMm, MIN_TEXT_PT, OBJECT_LABEL_TYPES } from "./state.js?v=0.36.4";
-import { openFontModalForSelection, openAngleArcLabelEditor } from "./tools.js?v=0.36.4";
-import { resolveObjectStyle } from "./style-mode.js?v=0.36.4";
+import { TEXT_FONTS, DEFAULT_TEXT_FONT, DEFAULT_TEXT_SIZE_MM, mmToPt, ptToMm, MIN_TEXT_PT, OBJECT_LABEL_TYPES, normalizeTextRunStyle } from "./state.js?v=0.36.5";
+import { openFontModalForSelection, openAngleArcLabelEditor } from "./tools.js?v=0.36.5";
+import { resolveObjectStyle } from "./style-mode.js?v=0.36.5";
 
 const GRAY_LEVELS = [0, 43, 85, 128, 170, 213, 255];
 const SHAPE_TYPES = ["rect", "ellipse", "triangle"];
@@ -1156,6 +1156,7 @@ export function initInspector(state) {
       const o = s2.objects.find((o) => o.id === ids[0]);
       if (!o || (o.type !== "text" && o.type !== "formula")) return;
       o[prop] = value;
+      if (o.type === "text") o.textRuns = (o.text ?? "") ? [{ text: o.text, style: normalizeTextRunStyle(o, o) }] : [];
       s2.undoStack.push(snap);
       s2.redoStack = [];
     });
@@ -1172,6 +1173,7 @@ export function initInspector(state) {
       if (!o || (o.type !== "text" && o.type !== "formula")) return;
       o.italic = val;
       o.fontStyle = val ? "italic" : "normal";
+      if (o.type === "text") o.textRuns = (o.text ?? "") ? [{ text: o.text, style: normalizeTextRunStyle(o, o) }] : [];
       s2.undoStack.push(snap);
       s2.redoStack = [];
     });

@@ -27,7 +27,7 @@ import {
   DEFAULT_TEXT_SIZE_MM,
   resolveTextFontStyle,
   resolveTextLetterSpacing,
-} from "./state.js?v=0.36.4";
+} from "./state.js?v=0.36.5";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 // Glyph + rule ink. Mirrors renderText(), which always paints #0d1117 (text has
