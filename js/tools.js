@@ -1917,6 +1917,10 @@ let _textFormulaMode = false;
 let _textAnchor = null;     // world-space {x,y} of the text origin
 let _textCancelled = false; // set by ESC so blur doesn't double-commit
 let _textSelection = { start: 0, end: 0 };
+// Dev-only: flip to true to show a live selection/textRuns readout in the editor.
+// Must be false for shipped builds (task requirement 5).
+const _TEXT_STYLE_DEBUG = false;
+let _textDebugEl = null;
 
 function setupTextTool() {
   _svg.addEventListener("mousedown", (e) => {
@@ -2079,7 +2083,38 @@ function _cacheTextSelection() {
   const start = Math.max(0, Math.min(len, _textEditor.selectionStart ?? len));
   const end = Math.max(0, Math.min(len, _textEditor.selectionEnd ?? start));
   _textSelection = { start: Math.min(start, end), end: Math.max(start, end) };
+  _updateTextDebug();
   return _textSelection;
+}
+
+// Re-assert the cached range onto the live textarea after a style apply so the
+// highlight stays visible and the NEXT toolbar action still sees a non-empty
+// range (native <select> / focus churn can otherwise collapse it to a caret).
+function _restoreTextSelection() {
+  if (!_textEditor) return;
+  const sel = _textSelection;
+  if (!sel || sel.end <= sel.start) return;
+  const len = _textEditor.value.length;
+  const start = Math.min(sel.start, len);
+  const end = Math.min(sel.end, len);
+  try { _textEditor.setSelectionRange(start, end); } catch { /* detached */ }
+  _textEditor.focus();
+}
+
+// Dev-only readout: proves the editor knows the exact selection + resulting runs.
+function _updateTextDebug() {
+  if (!_TEXT_STYLE_DEBUG || !_textDebugEl) return;
+  const sel = _textSelection || { start: 0, end: 0 };
+  const dt = _state.get().draftText;
+  const runs = dt ? normalizeTextRuns(dt).map((r) => ({
+    text: r.text,
+    font: (r.style.fontFamily || "").slice(0, 10),
+    italic: r.style.italic,
+    bold: r.style.fontWeight === "bold",
+  })) : [];
+  _textDebugEl.textContent =
+    `sel: [${sel.start}, ${sel.end}) "${(_textEditor?.value || "").slice(sel.start, sel.end)}"\n` +
+    `runs: ${JSON.stringify(runs)}`;
 }
 
 function _currentUnifiedStyle() {
@@ -2160,6 +2195,8 @@ function _applyUnifiedStyleToDraft(selection = _textSelection) {
   });
   _syncEditorFont();
   _refreshUnifiedPreview();
+  _restoreTextSelection();
+  _updateTextDebug();
 }
 
 function _syncDraftFromUnifiedEditor() {
@@ -2251,11 +2288,16 @@ function _buildUnifiedStyleControls() {
   _textBoldInput.textContent = "굵게";
 
   controls.append(fontLabel, sizeLabel, _textItalicInput, _textBoldInput);
-  controls.addEventListener("mousedown", (e) => {
+  // Capture the caret range BEFORE the control steals focus. Both pointerdown and
+  // mousedown fire ahead of the native <select> popup / button focus, so the range
+  // the user picked is cached even when the dropdown later collapses the textarea.
+  const captureBeforeFocusSteal = (e) => {
     _cacheTextSelection();
     if (e.target && e.target.closest("button")) e.preventDefault();
     e.stopPropagation();
-  });
+  };
+  controls.addEventListener("pointerdown", captureBeforeFocusSteal);
+  controls.addEventListener("mousedown", captureBeforeFocusSteal);
 
   const applyStyle = () => _applyUnifiedStyleToDraft(_textSelection);
   _textFontSelect.addEventListener("change", applyStyle);
@@ -2268,7 +2310,33 @@ function _buildUnifiedStyleControls() {
     _textBoldInput.setAttribute("aria-pressed", _textBoldInput.getAttribute("aria-pressed") !== "true");
     applyStyle();
   });
-  return controls;
+
+  // Reliable fallback (task requirement 6): even if a native dropdown destroys the
+  // textarea selection, this <button> keeps its own mousedown from stealing focus
+  // (preventDefault), so the cached range styles exactly the picked characters.
+  const wrapper = document.createElement("div");
+  wrapper.className = "unified-style-block";
+  const applyRow = document.createElement("div");
+  applyRow.className = "unified-style-apply-row";
+  const applyBtn = document.createElement("button");
+  applyBtn.type = "button";
+  applyBtn.className = "unified-editor-btn unified-apply-selected";
+  applyBtn.textContent = "선택 글자에 적용";
+  applyBtn.addEventListener("pointerdown", captureBeforeFocusSteal);
+  applyBtn.addEventListener("mousedown", captureBeforeFocusSteal);
+  applyBtn.addEventListener("click", () => _applyUnifiedStyleToDraft(_textSelection));
+  applyRow.appendChild(applyBtn);
+  wrapper.append(controls, applyRow);
+
+  if (_TEXT_STYLE_DEBUG) {
+    _textDebugEl = document.createElement("pre");
+    _textDebugEl.className = "unified-style-debug";
+    _textDebugEl.style.cssText =
+      "margin:4px 0 0;padding:4px 6px;font:11px/1.4 monospace;white-space:pre-wrap;" +
+      "background:#0d1117;color:#7ee787;border-radius:4px;max-height:70px;overflow:auto;";
+    wrapper.appendChild(_textDebugEl);
+  }
+  return wrapper;
 }
 
 function _syncUnifiedStyleControls() {
@@ -2476,7 +2544,7 @@ function _openUnifiedTextEditor(draft, clientX, clientY, prefill) {
   _textEditor.focus();
   _textEditor.setSelectionRange(_textEditor.value.length, _textEditor.value.length);
   _cacheTextSelection();
-  ["select", "mouseup", "keyup", "focus"].forEach((type) => {
+  ["select", "mouseup", "pointerup", "keyup", "focus"].forEach((type) => {
     _textEditor.addEventListener(type, _cacheTextSelection);
   });
   _textEditor.addEventListener("input", () => {
@@ -2648,6 +2716,7 @@ function _removeTextEditor() {
   _textSizeInput = null;
   _textItalicInput = null;
   _textBoldInput = null;
+  _textDebugEl = null;
   if (_textEditor) {
     const el = _textEditor;
     _textEditor = null; // null first to prevent blur re-entrancy

@@ -989,6 +989,20 @@ textarea.unified-text-input {
   background: var(--c-main);
   border-color: var(--c-main);
 }
+.unified-style-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.unified-style-apply-row {
+  display: flex;
+  justify-content: flex-end;
+}
+.unified-apply-selected {
+  height: 28px;
+  padding: 0 10px;
+  font-weight: 600;
+}
 .unified-formula-panel {
   display: flex;
   flex-direction: column;
